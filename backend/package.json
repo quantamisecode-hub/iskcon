@@ -10,10 +10,17 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "format": "prettier --write \"src/**/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.ts\""
+    "format:check": "prettier --check \"src/**/*.ts\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "prisma:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@node-rs/argon2": "^2.2.2",
     "@prisma/client": "^6.16.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -30,12 +37,15 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.1",
     "@types/node": "^24.5.0",
+    "@types/supertest": "^7.2.1",
     "eslint": "^9.36.0",
     "eslint-config-prettier": "^10.1.0",
     "prisma": "^6.16.0",
+    "supertest": "^7.3.2",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
-    "typescript-eslint": "^8.44.0"
+    "typescript-eslint": "^8.44.0",
+    "vitest": "^5.1.0"
   },
   "prisma": {
     "schema": "prisma/schema.prisma"

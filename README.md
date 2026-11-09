@@ -4,9 +4,9 @@ A secure **Event-Based Food Inventory & Material Management System** — a dedic
 application to manage kitchen food, events, inventory materials, material
 requests, approvals, stock issue/return, and notifications.
 
-This repository currently contains **Phase 1 only**: the secure development
-foundation. No business features (inventory, events, login screens, etc.) exist
-yet — on purpose. Later phases build the real system on top of this base.
+**Status:** Phase 2 complete — database foundation, authentication (login/logout/session via secure
+HTTP-only cookies), role-based access control (ADMIN / EXECUTOR), user management, Admin → Executor
+assignments, and audit logging. Business modules (events, inventory, requests…) arrive in later phases.
 
 ---
 
@@ -34,16 +34,21 @@ React (browser)  ->  Node.js API  ->  Prisma  ->  MySQL
 | Frontend | React 19, Vite 7, TypeScript, React Router, Axios, Tailwind CSS |
 | Backend | Node.js 26, Express 5, TypeScript, Prisma ORM, Zod validation |
 | Database | MySQL 8.0 |
-| Security | Helmet, CORS allowlist, rate limiting, strict env validation |
-| Quality | ESLint, Prettier, strict TypeScript |
+| Passwords | Argon2id (OWASP parameters: 19 MiB, time cost 2, parallelism 1) |
+| Sessions | Random 256-bit tokens, stored only as SHA-256 hashes |
+| Security | Helmet, CORS allowlist, CSRF origin validation, rate limiting, strict env validation |
+| Quality | ESLint, Prettier, strict TypeScript, vitest (backend integration tests) |
 | Version control | Git |
 
 ## 3. Folder structure
 
 ```
 food-inventory-system/
-├── frontend/          Browser application (React)
+├── frontend/          Browser application (React) — login, session context,
+│                      role-aware navigation, protected routes
 ├── backend/           Server application (Node.js API + database access)
+│   └── prisma/        schema, seed, migrations (User, Session,
+│                      AdminExecutorAssignment, AuditLog)
 ├── docs/              Project documentation for everyone to read
 ├── .gitignore         Keeps secrets and machine files out of Git
 ├── README.md          This file
@@ -54,35 +59,28 @@ food-inventory-system/
 
 - Node.js 26 and npm
 - Git
-- MySQL 8.0 (service `MySQL80`)
-- Any MySQL graphical tool such as MySQL Workbench (optional, included with mysql)
+- MySQL 8.0 (service `MySQL80`), database `food_inventory` created
+- A dedicated MySQL account `food_inventory_user` (only database-level privileges)
 
 ## 5. Installation
 
-Open a terminal in this folder and run once:
-
 ```bash
-npm.cmd run setup
+npm.cmd run setup            # installs frontend + backend packages (once)
+cd backend
+npm.cmd run prisma:deploy    # applies database migrations (safe, no reset)
+npm.cmd run prisma:seed      # creates the two Development accounts (env-based passwords)
 ```
-
-That installs all packages for the frontend and backend (a few minutes).
 
 ## 6. Environment variables
 
-Environment variables are project settings kept outside the code so secrets
-are never committed to Git.
-
-- `frontend/.env.example` — public settings only (API address).
-- `backend/.env.example` — server settings (database address, security limits).
-
-Each folder already has a working local `.env` (not committed to Git).
-When the MySQL user is created in Phase 2, edit `backend/.env` and replace:
-
-```
-DATABASE_URL=\"mysql://USERNAME:PASSWORD@localhost:3306/DATABASE_NAME\"
-```
-
-with the real username, a **strong password**, and the database name.
+- `backend/.env` (Git-ignored) holds the real values:
+  `DATABASE_URL` (app MySQL user), `FIS_TEST_DATABASE_URL` (tests),
+  `SHADOW_DATABASE_URL` (migration tooling), `FRONTEND_URL`, cookie & rate
+  limit settings, and `DEV_ADMIN_*` / `DEV_EXECUTOR_*` seed credentials.
+- `backend/.env.example` lists every variable with placeholders only —
+  it is committed; the real `.env` never is.
+- `frontend/.env` may contain ONLY public `VITE_API_BASE_URL` / timeout —
+  no secrets are allowed there by policy.
 
 ## 7. How to run the frontend
 
@@ -91,7 +89,7 @@ cd frontend
 npm.cmd run dev
 ```
 
-Open the shown address (http://localhost:5173). Stop with Ctrl+C.
+Open http://localhost:5173 (Ctrl+C to stop).
 
 ## 8. How to run the backend
 
@@ -100,51 +98,66 @@ cd backend
 npm.cmd run dev
 ```
 
-The API listens on http://localhost:5000. Stop with Ctrl+C.
+The API listens on http://localhost:5000 (Ctrl+C to stop).
 
-## 9. Checking code quality (lint)
-
-```bash
-npm.cmd run lint           # from the root: checks frontend AND backend
-```
-
-Run this before asking for any new feature code — it catches mistakes early.
-
-## 10. How to build (make it deploy-ready)
+## 9. Checking code quality and tests
 
 ```bash
-npm.cmd run build          # from the root: builds backend AND frontend
+npm.cmd run lint                    # lint frontend AND backend from root
+cd backend; npm.cmd run test        # backend integration tests (auth + RBAC)
 ```
 
-Both must succeed with zero errors. Currently: both pass.
+## 10. How to build
 
-## 11. Security notes (short version)
+```bash
+npm.cmd run build                   # backend + frontend production builds
+```
 
-- Real credentials are NEVER stored in code or Git — only in `.env` files
-  that are ignored by Git.
-- The frontend may only hold *public* configuration (`VITE_*` variables).
-- The API validates its environment at startup and refuses to run with
-  missing/invalid settings (fail-fast).
-- CORS allows only the configured frontend address; no wildcards.
-- Security headers (Helmet), rate limiting, request limits, and a central
-  error handler that hides internal details are all active.
-- Full details, including what is IMPLEMENTED vs PLANNED:
-  `docs/security-baseline.md`.
+## 11. Authentication architecture (Phase 2)
 
-## 12. Development workflow (how we will work)
+1. `POST /api/v1/auth/login` → the backend validates email + Argon2id password
+   hash, creates a `Session` row (storing only the SHA-256 **hash** of a new
+   random token), and sets the token as an **HttpOnly cookie** (`fis_session`).
+2. Every authenticated request sends the cookie; the backend middleware
+   `authenticateSession` resolves it server-side and attaches the user —
+   the browser can never claim a role.
+3. `POST /api/v1/auth/logout` revokes the session (old token dead) and clears
+   the cookie. `GET /api/v1/auth/me` returns the safe profile.
+4. Nothing is stored in localStorage/sessionStorage — JavaScript never
+   touches the session token (XSS-proof).
 
-1. Everything is written into the repository; Git keeps the history.
-2. Each phase has clear checkpoints and must build + lint cleanly before
-   moving on.
-3. Business features are added phase by phase; Phase 1 intentionally stops
-   before any business logic.
+## 12. RBAC: ADMIN and EXECUTOR
 
-## 13. Root convenience commands
+- The role comes only from the database via the session — spoof-proof.
+- `requireRole('ADMIN')` / `requireRole('EXECUTOR')` backend middleware.
+- `/api/v1/users*` and `/api/v1/assignments*` are ADMIN-only.
+- The frontend mirrors this with `ProtectedRoute` + `RoleGuard` (UX only).
+
+## 13. Assignment model (Admin → Executor, with history)
+
+- `AdminExecutorAssignment` preserves history: ending an assignment marks
+  `isActive=false` + `unassignedAt`; records are never deleted.
+- The Admin side of every assignment is always the session-authenticated
+  admin; a duplicate ACTIVE assignment is impossible (row-lock guarded
+  transaction).
+- Future phases (Events, Requests, Approvals) will filter data by these
+  historical assignments.
+
+## 14. Security notes (current state)
+
+Helmet headers, CORS allowlist, CSRF origin validation on state-changing
+requests, strict rate limit on `/auth/login`, request-size limits, request
+IDs, structured redacted logging, fail-fast env validation, sanitized errors,
+and audit logging of LOGIN / LOGOUT / USER / ROLE / ASSIGNMENT actions.
+Full detail (IMPLEMENTED vs PLANNED): `docs/security-baseline.md`.
+Tests prove the RBAC matrix: see `backend/tests/auth-rbac.test.ts`.
+
+## 15. Root convenience commands
 
 | Command | Does what |
 |---------|-----------|
 | `npm.cmd run setup` | Install both apps' dependencies |
-| `npm.cmd run dev:backend` | Start the API |
-| `npm.cmd run dev:frontend` | Start the web UI |
+| `npm.cmd run dev:backend` / `dev:frontend` | Start the API / web UI |
 | `npm.cmd run lint` | Lint both apps |
-| `npm.cmd run build` | Build both apps (Phase 1 exit criterion) |
+| `npm.cmd run build` | Build both apps |
+| backend: `prisma:migrate` `prisma:deploy` `prisma:seed` `test` | Migrations / seed / tests |

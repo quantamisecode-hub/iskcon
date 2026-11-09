@@ -56,16 +56,18 @@ export function applySecurityMiddleware(app: Application): void {
 }
 
 /**
- * Session cookie policy for Phase 2 authentication.
+ * Session cookie policy.
  * HttpOnly: JavaScript (and therefore XSS) cannot read the token.
+ * Name comes from validated environment (default `fis_session`).
  */
-export const SESSION_COOKIE_NAME = 'fis_session';
+export const SESSION_COOKIE_NAME = env.SESSION_COOKIE_NAME;
 
 export interface SessionCookieOptions {
   httpOnly: true;
   secure: boolean;
   sameSite: boolean | 'lax' | 'strict' | 'none';
   path: '/';
+  maxAge?: number;
 }
 
 export function buildSessionCookieOptions(): SessionCookieOptions {

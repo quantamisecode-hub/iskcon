@@ -1,4 +1,4 @@
-import type { NextFunction, Request, RequestHandler, Response } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import { ZodError } from 'zod';
 import { logger } from '../utils/logger.js';
 import { ERROR_CODES, type ErrorCode } from '../constants/errorCodes.js';
@@ -10,6 +10,9 @@ import { ERROR_CODES, type ErrorCode } from '../constants/errorCodes.js';
  *  1. ONE consistent error response shape for the whole API.
  *  2. Users never see stack traces, file paths, SQL, or secrets.
  *  3. Developers still get full detail in server logs.
+ *
+ * Standard error envelope (Phase 2):
+ *   { success: false, error: { code, message }, requestId }
  */
 
 /** The only error type intended to be thrown across the application. */
@@ -37,8 +40,10 @@ export function notFoundHandler(req: Request, res: Response, next: NextFunction)
   }
   res.status(404).json({
     success: false,
-    message: 'The requested resource was not found.',
-    code: ERROR_CODES.NOT_FOUND,
+    error: {
+      code: ERROR_CODES.NOT_FOUND,
+      message: 'The requested resource was not found.',
+    },
     requestId: req.requestId,
   });
 }
@@ -68,8 +73,10 @@ export function errorHandler(
   const response = describeError(error);
   res.status(response.statusCode).json({
     success: false,
-    message: response.message,
-    code: response.code,
+    error: {
+      code: response.code,
+      message: response.message,
+    },
     requestId: req.requestId,
   });
 }
@@ -101,5 +108,3 @@ function describeError(error: unknown): ErrorDescriptor {
     message: 'Something went wrong. Please try again.',
   };
 }
-
-export type { RequestHandler };

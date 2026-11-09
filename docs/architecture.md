@@ -43,7 +43,7 @@ Route  ->  Middleware  ->  Controller  ->  Service  ->  Repository  ->  Prisma  
 | Repository | `src/repositories/` | All database access |
 | Config | `src/config/` | Validated env, database client, security options |
 
-## Middleware order (implemented in `src/app.ts` + security pipeline)
+## Middleware order (implemented in `src/app.ts` + security pipeline):
 
 ```
 Request
@@ -51,14 +51,32 @@ Request
  -> Security headers (Helmet)
  -> CORS (origin allowlist only)
  -> Body size limits (express.json/urlencoded)
+ -> Cookies parsing (cookie-parser)
  -> Global rate limiting
+ -> CSRF origin validation (state-changing requests)
  -> Request logging (structured, no query strings)
  -> Routes (/api/v1)
- -> Validation (per-route, Zod, Phase 2+)
- -> Authentication (Phase 2+)
- -> Authorization (Phase 2+)
- -> Central error handler
+ -> Validation (per-route, Zod, strict schemas)
+ -> Authentication (session cookie -> DB session)
+ -> Authorization (requireRole(ADMIN|EXECUTOR))
+ -> Controller -> Service -> Repository
+ -> Central error handler (envelope: success/error{code,message}/requestId)
 ```
+
+## Data model (Phase 2)
+
+- `User` (id, name, unique email, passwordHash, Role enum ADMIN|EXECUTOR,
+  isActive, lastLoginAt, timestamps) — soft-deactivation only.
+- `Session` (userId FK cascade, unique tokenHash SHA-256, expiresAt,
+  revokedAt, ip, userAgent) — revocation, expiration, multi-device.
+- `AdminExecutorAssignment` (adminId FK Restrict, executorId FK Restrict,
+  assignedAt, unassignedAt, isActive) — full history preserved; NO duplicate
+  active assignment (row-lock guarded transaction locks the executor row).
+- `AuditLog` (userId FK Restrict, action, entityType, entityId, oldValues/new
+  Values JSON, ip, userAgent) — append-only; row joins the action's transaction.
+- Indexes on: User.role, User.isActive, User.email(unique), Session.tokenHash(unique),
+  Session.userId, Session.expiresAt, Assignments (adminId,isActive),
+  (executorId,isActive), assignedAt, AuditLog userId/action/entity/createdAt.
 
 ## API versioning
 

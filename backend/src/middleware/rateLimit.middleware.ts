@@ -1,6 +1,6 @@
 import rateLimit from 'express-rate-limit';
+import type { Request, Response } from 'express';
 import { env } from '../config/env.js';
-import { ERROR_CODES } from '../constants/errorCodes.js';
 
 /**
  * Rate limiting - configured through environment values, not fixed numbers.
@@ -15,8 +15,20 @@ const standardOptions = {
   legacyHeaders: false,
   message: {
     success: false,
-    message: 'Too many requests. Please slow down and try again later.',
-    code: ERROR_CODES.RATE_LIMITED,
+    error: {
+      code: 'RATE_LIMITED',
+      message: 'Too many requests. Please slow down and try again later.',
+    },
+  },
+  handler(_req: Request, res: Response) {
+    res.status(429).json({
+      success: false,
+      error: {
+        code: 'RATE_LIMITED',
+        message: 'Too many requests. Please slow down and try again later.',
+      },
+      requestId: _req.requestId,
+    });
   },
 };
 

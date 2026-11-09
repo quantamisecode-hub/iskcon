@@ -1,8 +1,14 @@
 // =============================================================================
-// FOOD INVENTORY SYSTEM - Prisma schema
-// PHASE 1: initialization only. Business models (Users, Events, Dishes,
-// Inventory, Requests, ...) are DESIGNED AND ADDED IN LATER PHASES.
-// Do not add production database tables from here in Phase 1.
+// FOOD INVENTORY SYSTEM - Prisma schema (Phase 2)
+// Core entities: User, Session, AdminExecutorAssignment, AuditLog.
+// Business models (Events, Dishes, Inventory, Requests, ...) arrive in
+// later phases - this data model was designed to anchor them cleanly.
+//
+// Conventions:
+//  - IDs: UUID strings (generated at application layer by Prisma client)
+//  - timestamps: maintained automatically
+//  - passwords: only Argon2id HASHES are stored (never plaintext)
+//  - session tokens: only SHA-256 hashes are stored (never raw tokens)
 // =============================================================================
 
 generator client {
@@ -12,6 +18,101 @@ generator client {
 datasource db {
   provider = "mysql"
   url      = env("DATABASE_URL")
+  // Development-only shadow database for `prisma migrate dev`
+  // (the app user has rights on this exact database only).
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
-// (no models yet - business schema arrives in Phase 2+)
+/// Application roles. Extensible in later phases without schema overhaul.
+enum Role {
+  ADMIN
+  EXECUTOR
+}
+
+/// Application user. Historical references are preserved:
+/// users are DEACTIVATED (isActive=false), never hard-deleted in Phase 2.
+model User {
+  id           String    @id @default(uuid()) @db.Char(36)
+  firstName    String    @db.VarChar(100)
+  lastName     String    @db.VarChar(100)
+  email        String    @unique @db.VarChar(255)
+  passwordHash String    @db.VarChar(255)
+  role         Role
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  sessions        Session[]
+  auditLogs       AuditLog[]
+  adminAssigns    AdminExecutorAssignment[] @relation("AdminAssignments")
+  executorAssigns AdminExecutorAssignment[] @relation("ExecutorAssignments")
+
+  @@index([role])
+  @@index([isActive])
+}
+
+/// Authentication session (support for multiple devices).
+/// SECURITY: `tokenHash` is a SHA-256 hash of the random session token.
+/// The raw token NEVER touches the database or any API response.
+model Session {
+  id        String    @id @default(uuid()) @db.Char(36)
+  userId    String    @db.Char(36)
+  tokenHash String    @unique @db.VarChar(64)
+  expiresAt DateTime
+  revokedAt DateTime?
+  ipAddress String?   @db.VarChar(64)
+  userAgent String?   @db.VarChar(255)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Admin -> Executor assignment, WITH full history:
+/// ending an assignment marks isActive=false + unassignedAt (never deleted).
+/// Rule "no duplicate ACTIVE assignment" is enforced atomically in the
+/// assignment service using a row lock inside a transaction.
+model AdminExecutorAssignment {
+  id           String    @id @default(uuid()) @db.Char(36)
+  adminId      String    @db.Char(36)
+  executorId   String    @db.Char(36)
+  assignedAt   DateTime  @default(now())
+  unassignedAt DateTime?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  admin    User   @relation("AdminAssignments", fields: [adminId], references: [id], onDelete: Restrict)
+  executor User   @relation("ExecutorAssignments", fields: [executorId], references: [id], onDelete: Restrict)
+
+  @@index([adminId, isActive])
+  @@index([executorId, isActive])
+  @@index([assignedAt])
+}
+
+/// Audit trail for security-relevant actions. Append-only.
+/// NEVER stores: passwords, password hashes, raw tokens, secrets.
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Char(36)
+  /// Actor (null only for failed login attempts by unknown users).
+  userId     String?  @db.Char(36)
+  action     String   @db.VarChar(50)
+  entityType String   @db.VarChar(50)
+  entityId   String?  @db.VarChar(64)
+  oldValues  Json?
+  newValues  Json?
+  ipAddress  String?  @db.VarChar(64)
+  userAgent  String?  @db.VarChar(255)
+  createdAt  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}

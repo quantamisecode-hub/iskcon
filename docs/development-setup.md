@@ -16,13 +16,13 @@ Wait until both installs finish (can take several minutes the first time).
 
 ## 2. Prepare environment files
 
-Both folders already contain a local, Git-ignored `.env`.
+Both folders already contain a local, Git-ignored `.env` configured for this
+machine (database `food_inventory` and the dedicated MySQL user exist).
 
-- `frontend/.env` — keep as-is for development.
-- `backend/.env` — update `DATABASE_URL` once the local MySQL user and
-  database exist (Phase 2 prepares them). Use a strong password; never
-  commit it. `backend/.env.example` shows the required variables; only the
-  listed variables are needed.
+- `frontend/.env` — public API address only; keep as-is.
+- `backend/.env` — holds `DATABASE_URL` (app user, not root), test and shadow
+  DB URLs, cookie/rate-limit settings, and DEV seed credentials.
+  Never paste these values into anything that gets committed.
 
 ## 3. Start the two apps (two terminals)
 
@@ -48,9 +48,22 @@ Open http://localhost:5173 — you should see the Phase 1 shell with
 | Check | How | Expected |
 |-------|-----|----------|
 | API alive | Open http://localhost:5000/api/v1/health | `API is healthy` |
-| Database | http://localhost:5000/api/v1/health/db | `Database is reachable` (after MySQL user exists) |
+| Database | http://localhost:5000/api/v1/health/db | `Database is reachable` |
+| Login works | Sign in at http://localhost:5173/login | Redirects to Dashboard |
+| Backend tests | `cd backend; npm.cmd run test` | All pass (auth + RBAC) |
 | Code quality | `npm.cmd run lint` (root) | No errors |
 | Build | `npm.cmd run build` (root) | Both builds succeed |
+
+## 5. Prisma commands (run inside `backend/`)
+
+```bash
+npm.cmd run prisma:migrate   # create a NEW migration after schema changes (dev)
+npm.cmd run prisma:deploy    # apply migrations safely (no reset) - CI/other machines
+npm.cmd run prisma:seed      # create/refresh the two Development accounts
+npx.cmd prisma validate      # quick schema check
+```
+
+NEVER run `prisma migrate reset` against the real database.
 
 ## 5. Troubleshooting
 

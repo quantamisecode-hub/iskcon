@@ -1,20 +1,22 @@
 /**
  * Standard API response shapes.
- * Every backend response follows the same envelope:
  *   success -> { success: true,  data, message }
- *   failure -> { success: false, message, code, requestId }
+ *   failure -> { success: false, error: { code, message }, requestId }
  */
-
 export interface ApiSuccess<TData> {
   success: true;
   data: TData;
   message?: string;
 }
 
+export interface ApiErrorBody {
+  code: string;
+  message: string;
+}
+
 export interface ApiFailure {
   success: false;
-  message: string;
-  code?: string;
+  error: ApiErrorBody;
   requestId?: string;
 }
 

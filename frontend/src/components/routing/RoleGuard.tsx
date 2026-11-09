@@ -1,14 +1,23 @@
 import type { ReactNode } from 'react';
-import type { UserRole } from '../../context/AuthContext';
+import { Navigate } from 'react-router-dom';
+import { useAuth } from '../../hooks/useAuth';
+import { PageLoader } from '../common/PageLoader';
 
 /**
- * PLACEHOLDER - real enforcement arrives with Phase 2 authorization.
- *
- * Phase 2 behaviour: renders children only when the logged-in user's
- * role (ADMIN / EXECUTOR) matches the allowed roles; otherwise shows
- * the Unauthorized page. No fake role checking in Phase 1.
+ * Role-based rendering guard (UX layer).
+ * The backend independently enforces the same rule on every API call
+ * with requireRole(...) — role data can never be spoofed from React.
  */
-export function RoleGuard({ allowedRoles, children }: { allowedRoles: UserRole[]; children: ReactNode }) {
-  void allowedRoles; // Placeholder: used for real checks in Phase 2.
+export function RoleGuard({ allowedRoles, children }: { allowedRoles: AuthRole[]; children: ReactNode }) {
+  const { user, status } = useAuth();
+
+  if (status === 'loading') {
+    return <PageLoader />;
+  }
+  if (!user || !allowedRoles.includes(user.role)) {
+    return <Navigate to="/unauthorized" replace />;
+  }
   return <>{children}</>;
 }
+
+export type AuthRole = 'ADMIN' | 'EXECUTOR';

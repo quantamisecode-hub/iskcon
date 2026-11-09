@@ -40,6 +40,16 @@ const envSchema = z.object({
     .transform((value) => value === 'true'),
   COOKIE_SAME_SITE: z.enum(['lax', 'strict', 'none']).default('lax'),
 
+  // Authentication session cookie settings. No server-side signing secret
+  // is needed: session tokens are 256-bit random values stored as SHA-256
+  // hashes (see docs/security-baseline.md).
+  SESSION_COOKIE_NAME: z
+    .string()
+    .regex(/^[a-zA-Z0-9_-]+$/)
+    .max(64)
+    .default('fis_session'),
+  SESSION_EXPIRES_DAYS: z.coerce.number().int().min(1).max(90).default(7),
+
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(900000),
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(300),
   AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(10),
