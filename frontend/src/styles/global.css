@@ -1,0 +1,8 @@
+@import 'tailwindcss';
+
+/* Global defaults kept minimal; the visual identity is finalized
+   in a later phase with the provided ISKCON brand palette. */
+html,
+body {
+  @apply bg-slate-100 text-slate-900 antialiased;
+}

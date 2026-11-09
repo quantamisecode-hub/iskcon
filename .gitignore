@@ -1,0 +1,32 @@
+# =============================================================
+# FOOD INVENTORY SYSTEM - ROOT GITIGNORE
+# Rules: everything secret or machine-generated stays out of Git.
+# .env.example files ARE committed (they contain no real secrets).
+# =============================================================
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Environment files - NEVER commit real credentials
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Test coverage
+coverage/
+
+# Editor / operating system noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

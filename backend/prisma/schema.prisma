@@ -1,0 +1,17 @@
+// =============================================================================
+// FOOD INVENTORY SYSTEM - Prisma schema
+// PHASE 1: initialization only. Business models (Users, Events, Dishes,
+// Inventory, Requests, ...) are DESIGNED AND ADDED IN LATER PHASES.
+// Do not add production database tables from here in Phase 1.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// (no models yet - business schema arrives in Phase 2+)
