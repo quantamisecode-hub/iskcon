@@ -1,7 +1,7 @@
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
-import prisma from './helpers/test-client.js';
+import getTestClient from './helpers/test-client.js';
 import type { User } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { authService } from '../src/services/auth.service.js';
@@ -13,6 +13,7 @@ import { authService } from '../src/services/auth.service.js';
  */
 
 const app = createApp();
+const prisma = getTestClient();
 
 const createdUserIds: string[] = [];
 
