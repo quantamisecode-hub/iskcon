@@ -1,9 +1,11 @@
-import { useContext, useMemo } from 'react';
+import { useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
 
-/** Typed access to the authentication session. Must be used inside AuthProvider. */
+/** Wraps the existing AuthContext, adding a convenient login/signout. */
 export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used inside AuthProvider.');
-  return useMemo(() => context, [context]);
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return ctx;
 }

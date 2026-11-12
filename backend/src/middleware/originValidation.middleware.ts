@@ -26,7 +26,7 @@ export function originValidationMiddleware(req: Request, res: Response, next: Ne
     return;
   }
 
-  const allowedOrigin = new URL(env.FRONTEND_URL).origin.toLowerCase();
+  const allowedOrigins = env.ALLOWED_ORIGINS;
   const originHeader = req.headers.origin;
   const refererHeader = req.headers.referer;
 
@@ -37,7 +37,7 @@ export function originValidationMiddleware(req: Request, res: Response, next: Ne
         ? new URL(refererHeader).origin.toLowerCase()
         : null;
 
-  if (requestOrigin === null || requestOrigin === allowedOrigin) {
+  if (requestOrigin === null || allowedOrigins.includes(requestOrigin)) {
     next();
     return;
   }

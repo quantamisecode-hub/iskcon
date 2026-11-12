@@ -15,7 +15,10 @@ import { ERROR_CODES } from '../constants/errorCodes.js';
  */
 export function validateBody(schema: ZodType) {
   return (req: Request, _res: Response, next: NextFunction): void => {
-    const result = schema.safeParse(req.body);
+    // Express 5 leaves req.body undefined when no payload is sent. Normalise
+    // to {} so all-optional schemas (e.g. approve-all) accept an empty POST,
+    // while schemas with required fields still fail validation.
+    const result = schema.safeParse(req.body ?? {});
     if (!result.success) {
       next(createValidationError());
       return;

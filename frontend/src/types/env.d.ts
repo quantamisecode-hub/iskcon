@@ -6,8 +6,8 @@
  * Backend secrets (JWT, database passwords) must NEVER be added.
  */
 interface ImportMetaEnv {
-  /** Base URL of the backend API, e.g. http://localhost:5000/api */
-  readonly VITE_API_BASE_URL?: string;
+  /** Full backend API root including /api/v1, e.g. http://localhost:5000/api/v1 */
+  readonly VITE_API_URL: string;
   /** Axios timeout in milliseconds */
   readonly VITE_API_TIMEOUT_MS?: string;
 }

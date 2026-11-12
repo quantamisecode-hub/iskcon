@@ -12,7 +12,10 @@ dist/
 build/
 *.tsbuildinfo
 
-# Environment files - NEVER commit real credentials
+# Environment files - NEVER commit real credentials.
+# .env / .env.local hold machine-specific secrets and are ignored.
+# frontend/.env.development / .env.production contain only PUBLIC
+# VITE_* values (no secrets) and are intentionally committed.
 .env
 .env.local
 .env.*.local

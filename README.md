@@ -75,12 +75,13 @@ npm.cmd run prisma:seed      # creates the two Development accounts (env-based p
 
 - `backend/.env` (Git-ignored) holds the real values:
   `DATABASE_URL` (app MySQL user), `FIS_TEST_DATABASE_URL` (tests),
-  `SHADOW_DATABASE_URL` (migration tooling), `FRONTEND_URL`, cookie & rate
+  `SHADOW_DATABASE_URL` (migration tooling), `CORS_ORIGIN`, cookie & rate
   limit settings, and `DEV_ADMIN_*` / `DEV_EXECUTOR_*` seed credentials.
 - `backend/.env.example` lists every variable with placeholders only —
   it is committed; the real `.env` never is.
-- `frontend/.env` may contain ONLY public `VITE_API_BASE_URL` / timeout —
-  no secrets are allowed there by policy.
+- `frontend/.env.development` / `.env.production` contain ONLY public
+  `VITE_API_URL` (full API root including `/api/v1`) and timeout — no
+  secrets are allowed there by policy.
 
 ## 7. How to run the frontend
 

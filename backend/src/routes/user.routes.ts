@@ -6,6 +6,7 @@ import { ROLES } from '../constants/roles.js';
 import {
   createUserSchema,
   idParamsSchema,
+  resetPasswordSchema,
   updateUserSchema,
   updateUserStatusSchema,
   listUsersQuerySchema,
@@ -26,3 +27,5 @@ userRouter.post('/', validateBody(createUserSchema), userController.create);
 userRouter.get('/:id', validateParams(idParamsSchema), userController.getById);
 userRouter.patch('/:id', validateParams(idParamsSchema), validateBody(updateUserSchema), userController.update);
 userRouter.patch('/:id/status', validateParams(idParamsSchema), validateBody(updateUserStatusSchema), userController.updateStatus);
+userRouter.post('/:id/reset-password', validateParams(idParamsSchema), validateBody(resetPasswordSchema), userController.resetPassword);
+userRouter.delete('/:id', validateParams(idParamsSchema), userController.deleteUser);

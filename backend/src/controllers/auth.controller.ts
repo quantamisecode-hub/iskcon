@@ -2,6 +2,7 @@ import type { CookieOptions } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { authService } from '../services/auth.service.js';
 import { sendSuccess } from '../utils/apiResponse.js';
+import { getAuthenticatedUser, getSessionId } from '../middleware/auth.middleware.js';
 import { buildSessionCookieOptions } from '../config/security.js';
 import { env } from '../config/env.js';
 
@@ -52,6 +53,54 @@ export const authController = {
     try {
       // authUser was attached server-side by authenticateSession.
       sendSuccess(res, { user: req.authUser }, 'Current user');
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async updateProfile(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const actor = getAuthenticatedUser(req);
+      const { firstName, lastName, email, currentPassword } = req.body as {
+        firstName?: string;
+        lastName?: string;
+        email?: string;
+        currentPassword?: string;
+      };
+      const user = await authService.updateProfile(
+        actor.id,
+        { firstName, lastName, email, currentPassword },
+        { ipAddress: req.ip, userAgent: req.headers['user-agent'] },
+      );
+      sendSuccess(res, { user }, 'Profile updated');
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async changePassword(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const actor = getAuthenticatedUser(req);
+      const { currentPassword, newPassword } = req.body as { currentPassword: string; newPassword: string };
+      await authService.changePassword(actor.id, getSessionId(req), { currentPassword, newPassword }, {
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+      sendSuccess(res, {}, 'Password changed. Other sessions have been signed out.');
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async setAvatar(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const actor = getAuthenticatedUser(req);
+      const { avatarUrl } = req.body as { avatarUrl: string | null };
+      const user = await authService.setAvatar(actor.id, avatarUrl, {
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+      sendSuccess(res, { user }, avatarUrl === null ? 'Avatar removed' : 'Avatar updated');
     } catch (error) {
       next(error);
     }

@@ -1,5 +1,6 @@
 import { prisma } from '../config/database.js';
 import { userRepository } from '../repositories/user.repository.js';
+import { sessionRepository } from '../repositories/session.repository.js';
 import { auditLogRepository } from '../repositories/auditLog.repository.js';
 import { AUDIT_ACTIONS } from '../constants/auditActions.js';
 import { ApiError } from '../middleware/error.middleware.js';
@@ -7,6 +8,7 @@ import { ERROR_CODES } from '../constants/errorCodes.js';
 import { hashPassword, checkPasswordPolicy } from '../utils/password.js';
 import { toSafeUser, type AuthenticatedUser } from '../utils/safeUser.js';
 import type { DbClient } from '../repositories/user.repository.js';
+import { disconnectUser, setUserRoleRoom } from '../lib/socket.js';
 
 /**
  * USER MANAGEMENT SERVICE (Admin-only by route contract).
@@ -183,6 +185,7 @@ export const userService = {
       );
       return user;
     });
+    if (roleChanged) setUserRoleRoom(updated.id, updated.role);
     return toSafeUser(updated);
   },
 
@@ -218,6 +221,9 @@ export const userService = {
 
     const updated = await prisma.$transaction(async (tx) => {
       const user = await userRepository.update(target.id, { isActive: !deactivate }, tx);
+      // Revoke rather than rely on the isActive check alone, so reactivating
+      // the account later does not silently revive old sessions.
+      if (deactivate) await sessionRepository.revokeOthersForUser(target.id, undefined, tx);
       await auditLogRepository.create(
         {
           userId: actor.id,
@@ -240,8 +246,116 @@ export const userService = {
         where: { OR: [{ adminId: target.id }, { executorId: target.id }], isActive: true },
         data: { isActive: false, unassignedAt: new Date() },
       });
+      disconnectUser(target.id);
     }
     return toSafeUser(updated);
+  },
+
+  /**
+   * ADMIN override — reset a user's password without the old one.
+   * Revoking ALL of the target's sessions forces a fresh login everywhere.
+   */
+  async resetPassword(
+    actor: AuthenticatedUser,
+    targetUserId: string,
+    newPassword: string,
+    context: { ipAddress?: string; userAgent?: string },
+  ): Promise<{ reset: true }> {
+    const target = await userRepository.findById(targetUserId);
+    if (!target) {
+      throw new ApiError({ statusCode: 404, code: ERROR_CODES.NOT_FOUND, message: 'User not found.' });
+    }
+
+    const policy = checkPasswordPolicy(newPassword);
+    if (!policy.ok) {
+      throw new ApiError({ statusCode: 400, code: ERROR_CODES.VALIDATION_ERROR, message: policy.reason });
+    }
+
+    const passwordHash = await hashPassword(newPassword);
+    await prisma.$transaction(async (tx) => {
+      await userRepository.update(target.id, { passwordHash }, tx);
+      await sessionRepository.revokeOthersForUser(target.id, undefined, tx);
+      await auditLogRepository.create(
+        {
+          userId: actor.id,
+          action: AUDIT_ACTIONS.RESET_PASSWORD,
+          entityType: 'USER',
+          entityId: target.id,
+          oldValues: { reset: true },
+          newValues: { reset: true },
+          ipAddress: context.ipAddress,
+          userAgent: context.userAgent,
+        },
+        tx,
+      );
+    });
+    disconnectUser(target.id);
+    return { reset: true };
+  },
+
+  /**
+   * Hard-delete a user with audit-safe, FK-safe handling.
+   * Blocked when: deleting yourself, deleting the last active admin,
+   * or the user owns/created any event (business history must survive).
+   */
+  async deleteUser(
+    actor: AuthenticatedUser,
+    targetUserId: string,
+    context: { ipAddress?: string; userAgent?: string },
+  ): Promise<{ deleted: true }> {
+    const target = await userRepository.findById(targetUserId);
+    if (!target) {
+      throw new ApiError({ statusCode: 404, code: ERROR_CODES.NOT_FOUND, message: 'User not found.' });
+    }
+    if (actor.id === target.id) {
+      throw new ApiError({ statusCode: 403, code: ERROR_CODES.FORBIDDEN, message: 'You cannot delete your own account.' });
+    }
+    if (target.role === 'ADMIN') {
+      const activeAdmins = await userRepository.countActiveAdmins();
+      if (activeAdmins <= 1 && target.isActive) {
+        throw new ApiError({ statusCode: 409, code: ERROR_CODES.CONFLICT, message: 'The system must always keep at least one active ADMIN.' });
+      }
+    }
+
+    const eventCount = await prisma.event.count({
+      where: { OR: [{ adminId: target.id }, { createdBy: target.id }] },
+    });
+    if (eventCount > 0) {
+      throw new ApiError({
+        statusCode: 409,
+        code: ERROR_CODES.CONFLICT,
+        message: `This user owns ${eventCount} event(s). Delete those events first or deactivate the user instead.`,
+      });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // Anonymize audit entries (keep the trail, drop the identity).
+      await tx.auditLog.updateMany({ where: { userId: target.id }, data: { userId: null } });
+      // End + remove assignment history rows (FK restrict).
+      await tx.adminExecutorAssignment.updateMany({
+        where: { OR: [{ adminId: target.id }, { executorId: target.id }], isActive: true },
+        data: { isActive: false, unassignedAt: new Date() },
+      });
+      await tx.adminExecutorAssignment.deleteMany({
+        where: { OR: [{ adminId: target.id }, { executorId: target.id }] },
+      });
+      await tx.session.deleteMany({ where: { userId: target.id } });
+      await tx.user.delete({ where: { id: target.id } });
+      await auditLogRepository.create(
+        {
+          userId: actor.id,
+          action: AUDIT_ACTIONS.DELETE_USER,
+          entityType: 'USER',
+          entityId: target.id,
+          oldValues: { email: target.email, role: target.role, firstName: target.firstName, lastName: target.lastName },
+          ipAddress: context.ipAddress,
+          userAgent: context.userAgent,
+        },
+        tx,
+      );
+    });
+    disconnectUser(target.id);
+    return { deleted: true };
   },
 };
 

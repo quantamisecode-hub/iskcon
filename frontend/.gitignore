@@ -1,6 +1,8 @@
 # Frontend gitignore (root gitignore also applies)
 node_modules/
 dist/
+# Local, machine-specific secrets/overrides only.
+# .env.development and .env.production contain PUBLIC VITE_* URLs and are committed.
 .env
 .env.local
 .env.*.local

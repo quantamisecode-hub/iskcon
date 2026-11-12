@@ -35,6 +35,12 @@ export const updateUserStatusSchema = z
   })
   .strict();
 
+export const resetPasswordSchema = z
+  .object({
+    newPassword: z.string().min(8).max(128),
+  })
+  .strict();
+
 /** List filters: query string validation. */
 export const listUsersQuerySchema = z
   .object({

@@ -88,4 +88,33 @@ export const userController = {
       next(error);
     }
   },
+
+  async resetPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const actor = getAuthenticatedUser(req);
+      const params = res.locals['validatedParams'] as { id: string };
+      const { newPassword } = req.body as { newPassword: string };
+      await userService.resetPassword(actor, params.id, newPassword, {
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+      sendSuccess(res, { reset: true }, 'Password reset. The user must sign in again.');
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async deleteUser(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const actor = getAuthenticatedUser(req);
+      const params = res.locals['validatedParams'] as { id: string };
+      await userService.deleteUser(actor, params.id, {
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+      sendSuccess(res, { deleted: true }, 'User deleted');
+    } catch (error) {
+      next(error);
+    }
+  },
 };

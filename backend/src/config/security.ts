@@ -19,7 +19,7 @@ const corsOptions: CorsOptions = {
       // Non-browser clients (curl, health checks) send no Origin header.
       return callback(null, true);
     }
-    if (requestingOrigin === env.FRONTEND_URL) {
+    if (env.ALLOWED_ORIGINS.includes(requestingOrigin.toLowerCase())) {
       return callback(null, true);
     }
     // Reject silently: the browser refuses the response.

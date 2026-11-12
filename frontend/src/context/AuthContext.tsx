@@ -22,6 +22,8 @@ export interface AuthContextValue {
   status: 'loading' | 'ready';
   login(email: string, password: string): Promise<AuthUserProfile>;
   logout(): Promise<void>;
+  /** Re-fetch the current user from the backend (after profile/avatar changes). */
+  refreshUser(): Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
@@ -76,9 +78,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    try {
+      const profile = await fetchCurrentUser();
+      setUser(profile);
+    } catch {
+      // Keep the previous profile on transient failures.
+    }
+  }, []);
+
   const value = useMemo<AuthContextValue>(
-    () => ({ user, isAuthenticated, status, login, logout }),
-    [user, isAuthenticated, status, login, logout],
+    () => ({ user, isAuthenticated, status, login, logout, refreshUser }),
+    [user, isAuthenticated, status, login, logout, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

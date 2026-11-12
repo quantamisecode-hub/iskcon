@@ -11,9 +11,9 @@ export const assignmentController = {
   async list(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const actor = getAuthenticatedUser(req);
-      const { activeOnly } = res.locals['validatedQuery'] as { activeOnly: boolean };
-      const assignments = await assignmentService.listAssignments(actor, activeOnly);
-      sendSuccess(res, { assignments }, 'Assignments retrieved');
+      const query = res.locals['validatedQuery'] as { activeOnly: boolean; page: number; pageSize: number };
+      const result = await assignmentService.listAssignments(actor, query);
+      sendSuccess(res, result, 'Assignments retrieved');
     } catch (error) {
       next(error);
     }
@@ -22,11 +22,16 @@ export const assignmentController = {
   async create(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const actor = getAuthenticatedUser(req);
-      const { executorId } = req.body as { executorId: string };
-      const assignment = await assignmentService.createAssignment(actor, executorId, {
-        ipAddress: req.ip,
-        userAgent: req.headers['user-agent'],
-      });
+      const { executorId, adminId } = req.body as { executorId: string; adminId?: string };
+      const assignment = await assignmentService.createAssignment(
+        actor,
+        executorId,
+        {
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        },
+        adminId,
+      );
       sendSuccess(res, { assignment }, 'Executor assigned', 201);
     } catch (error) {
       next(error);

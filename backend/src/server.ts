@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { createServer } from 'node:http';
 import { createApp } from './app.js';
+import { initSocket } from './lib/socket.js';
 import { env } from './config/env.js';
 import { disconnectDatabase } from './config/database.js';
 import { logger } from './utils/logger.js';
@@ -12,13 +13,14 @@ import { logger } from './utils/logger.js';
 
 const app = createApp();
 const httpServer = createServer(app);
+initSocket(httpServer);
 
 httpServer.listen(env.PORT, () => {
   logger.info(
     {
       port: env.PORT,
       environment: env.NODE_ENV,
-      allowedOrigin: env.FRONTEND_URL,
+      allowedOrigins: env.ALLOWED_ORIGINS,
     },
     'Food Inventory API started',
   );

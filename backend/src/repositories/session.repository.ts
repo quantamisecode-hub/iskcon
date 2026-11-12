@@ -40,4 +40,21 @@ export const sessionRepository = {
   async revoke(id: string, client: DbClient = prisma): Promise<Session> {
     return client.session.update({ where: { id }, data: { revokedAt: new Date() } });
   },
+
+  /** Revoke every session for a user except (optionally) the current one. Used on password change. */
+  async revokeOthersForUser(
+    userId: string,
+    keepSessionId?: string,
+    client: DbClient = prisma,
+  ): Promise<number> {
+    const result = await client.session.updateMany({
+      where: {
+        userId,
+        revokedAt: null,
+        ...(keepSessionId ? { id: { not: keepSessionId } } : {}),
+      },
+      data: { revokedAt: new Date() },
+    });
+    return result.count;
+  },
 };

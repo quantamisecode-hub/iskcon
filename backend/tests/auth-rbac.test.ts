@@ -1,10 +1,11 @@
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
 import getTestClient from './helpers/test-client.js';
 import type { User } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { authService } from '../src/services/auth.service.js';
+import { withDeadlockRetry } from '../src/lib/dbRetry.js';
 
 /**
  * BACKEND INTEGRATION TESTS (Phase 2)
@@ -49,6 +50,10 @@ function extractCookie(response: request.Response): string | undefined {
 }
 
 afterAll(async () => {
+  // Cleanup flake fix: parallel suites' afterAll deleteMany calls can deadlock
+  // each other (P2034). deleteMany is idempotent, so replaying the whole
+  // cleanup body on a deadlock is always safe.
+  await withDeadlockRetry(async () => {
   // Order matters: audit/assignment rows reference users via FK.
   await prisma.auditLog.deleteMany({ where: { userId: { in: createdUserIds } } });
   await prisma.adminExecutorAssignment.deleteMany({
@@ -56,6 +61,7 @@ afterAll(async () => {
   });
   await prisma.auditLog.deleteMany({ where: { entityId: { in: createdUserIds } } });
   await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
+  }, 5);
   await prisma.$disconnect();
 });
 

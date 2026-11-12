@@ -6,9 +6,16 @@
  */
 import 'dotenv/config';
 
-process.env['DATABASE_URL'] =
-  process.env['FIS_TEST_DATABASE_URL'] ??
-  'mysql://food_inventory_user:FisApp_2026!zK9mQ2vX7wR4@localhost:3306/food_inventory_test';
+const testDatabaseUrl = process.env['FIS_TEST_DATABASE_URL'];
+
+if (!testDatabaseUrl) {
+  throw new Error(
+    'FIS_TEST_DATABASE_URL is required for tests. ' +
+      'Set it in backend/.env (see backend/.env.example). Tests never run against the app database.',
+  );
+}
+
+process.env['DATABASE_URL'] = testDatabaseUrl;
 process.env['NODE_ENV'] = 'test';
 process.env['RATE_LIMIT_WINDOW_MS'] = '60000';
 process.env['RATE_LIMIT_MAX'] = '100000';
@@ -17,4 +24,4 @@ process.env['COOKIE_SECURE'] = 'false';
 process.env['COOKIE_SAME_SITE'] = 'lax';
 process.env['SESSION_EXPIRES_DAYS'] = '7';
 process.env['REQUEST_BODY_LIMIT'] = '100kb';
-process.env['FRONTEND_URL'] = 'http://localhost:5173';
+process.env['CORS_ORIGIN'] = 'http://localhost:5173';

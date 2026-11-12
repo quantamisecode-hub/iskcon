@@ -1,8 +1,223 @@
 @import 'tailwindcss';
 
-/* Global defaults kept minimal; the visual identity is finalized
-   in a later phase with the provided ISKCON brand palette. */
+/* ============================================================
+   ISKCON DESIGN TOKENS (Tailwind v4 @theme)
+   Terracotta & lotus identity — Food Inventory & Material Mgmt
+   ============================================================ */
+@theme {
+  /* Brand palette */
+  --color-primary: #b84234; /* terracotta */
+  --color-primary-dark: #96392e;
+  --color-primary-deep: #7a2c22; /* deep maroon-brown */
+  --color-primary-soft: #f3ddd6; /* terracotta tint for chips/backgrounds */
+  --color-primary-foreground: #ffffff;
+
+  /* Surfaces */
+  --color-background: #fbf6ef; /* warm cream */
+  --color-card: #ffffff;
+  --color-border: #e8ddd1;
+  --color-border-strong: #d9cbbd;
+
+  /* Text */
+  --color-ink: #1f1f1f;
+  --color-secondary: #6f6257; /* warm muted text */
+  --color-muted: #9a8c80;
+
+  /* Feedback */
+  --color-danger: #b3261e;
+  --color-danger-soft: #fdecea;
+  --color-success: #1e7a3c;
+  --color-warning: #b25e09;
+
+  /* Typography */
+  --font-sans: 'Poppins', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  /* Radii & shadows */
+  --radius-card: 1rem;
+  --shadow-card: 0 24px 60px -24px rgb(31 31 31 / 0.35);
+  --shadow-lift: 0 10px 28px -12px rgb(184 66 52 / 0.45);
+
+  /* Motion */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+}
+
 html,
 body {
-  @apply bg-slate-100 text-slate-900 antialiased;
+  @apply bg-background font-sans text-ink antialiased;
+}
+
+/* ============================================================
+   Click affordance — hand cursor on every interactive element.
+   (Tailwind's preflight leaves buttons at `default` in modern browsers.)
+   ============================================================ */
+@layer base {
+  a,
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  select,
+  summary,
+  label[for] {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [role='button'][aria-disabled='true'] {
+    cursor: not-allowed;
+  }
+
+  input[type='text'],
+  input[type='email'],
+  input[type='password'],
+  input[type='number'],
+  input[type='search'],
+  input[type='date'],
+  input[type='time'],
+  textarea {
+    cursor: text;
+  }
+
+  input[type='checkbox'],
+  input[type='radio'] {
+    cursor: pointer;
+  }
+}
+
+/* Subtle entrance animation for the auth card */
+@keyframes login-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-login-card-in {
+  animation: login-card-in 520ms var(--ease-standard) both;
+}
+
+/* Hamburger menu dropdown entrance */
+@keyframes menu-drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-menu-drop {
+  animation: menu-drop-in 180ms var(--ease-standard) both;
+  transform-origin: top left;
+}
+
+/* Mobile sidebar drawer */
+@keyframes drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-drawer-in {
+  animation: drawer-in 260ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+/* Route transition + loading states */
+@keyframes loader-slide {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(240%);
+  }
+}
+
+.animate-loader-slide {
+  animation: loader-slide 1.05s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes brand-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.72;
+    transform: scale(0.96);
+  }
+}
+
+.animate-brand-pulse {
+  animation: brand-pulse 1.4s ease-in-out infinite;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .animate-loader-slide,
+  .animate-brand-pulse,
+  .animate-drawer-in {
+    animation: none;
+  }
+}
+
+/* Modal + shimmer + event card animations */
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-modal-in {
+  animation: modal-in 220ms var(--ease-standard) both;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-card-in {
+  animation: card-in 320ms var(--ease-standard) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-login-card-in,
+  .animate-menu-drop,
+  .animate-modal-in,
+  .animate-shimmer,
+  .animate-card-in {
+    animation: none;
+  }
 }

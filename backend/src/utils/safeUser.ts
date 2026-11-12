@@ -12,6 +12,7 @@ export interface AuthenticatedUser {
   email: string;
   role: 'ADMIN' | 'EXECUTOR';
   isActive: boolean;
+  avatarUrl: string | null;
 }
 
 export function toSafeUser(user: User): AuthenticatedUser {
@@ -22,5 +23,6 @@ export function toSafeUser(user: User): AuthenticatedUser {
     email: user.email,
     role: user.role,
     isActive: user.isActive,
+    avatarUrl: user.avatarUrl ?? null,
   };
 }

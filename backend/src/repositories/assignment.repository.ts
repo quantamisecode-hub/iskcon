@@ -40,6 +40,25 @@ export const assignmentRepository = {
     });
   },
 
+  /** Global view of assignments (all admins), newest first, paginated. ADMIN-only by route contract. */
+  async findManyGlobal(options: { activeOnly: boolean; skip: number; take: number }): Promise<
+    (AdminExecutorAssignment & { executor: User; admin: User })[]
+  > {
+    return prisma.adminExecutorAssignment.findMany({
+      where: options.activeOnly ? { isActive: true } : {},
+      include: { executor: true, admin: true },
+      orderBy: { assignedAt: 'desc' },
+      skip: options.skip,
+      take: options.take,
+    });
+  },
+
+  async countGlobal(options: { activeOnly: boolean }): Promise<number> {
+    return prisma.adminExecutorAssignment.count({
+      where: options.activeOnly ? { isActive: true } : {},
+    });
+  },
+
   async findManyForExecutor(
     executorId: string,
   ): Promise<(AdminExecutorAssignment & { admin: User })[]> {

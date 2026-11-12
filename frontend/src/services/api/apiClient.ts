@@ -15,10 +15,36 @@ import { ApiRequestError } from './apiError';
  * NO tokens are stored in localStorage/sessionStorage.
  */
 export const apiClient: AxiosInstance = axios.create({
-  baseURL: appConfig.apiBaseUrl,
+  baseURL: appConfig.apiUrl,
   timeout: appConfig.apiTimeoutMs,
   withCredentials: true,
 });
+
+/**
+ * A dead session (expired / revoked / user deactivated) -> broadcast once so
+ * AuthContext drops the user and protected routes redirect to /login.
+ * Only the auth middleware's UNAUTHORIZED code counts: wrong-password 401s
+ * (INVALID_CREDENTIALS on login / change-password) must not sign the user out.
+ * /auth/me is skipped — a plain "who am I" probe must not flash the UI.
+ * The original Axios error is re-thrown untouched; pages read `err.response`.
+ */
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error: unknown) => {
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      const payload = error.response.data as ApiFailure | undefined;
+      const requestUrl = error.config?.url ?? '';
+      if (payload?.error?.code === 'UNAUTHORIZED' && !requestUrl.includes(API_ENDPOINTS.me)) {
+        window.dispatchEvent(
+          new CustomEvent<AuthEventDetail>(SESSION_EXPIRED_EVENT, {
+            detail: { reason: 'unauthorized' },
+          }),
+        );
+      }
+    }
+    return Promise.reject(error);
+  },
+);
 
 /**
  * Converts ANY Axios error into a safe, typed ApiRequestError.
@@ -30,17 +56,6 @@ export function toApiRequestError(error: unknown): ApiRequestError {
   if (axios.isAxiosError(error)) {
     const status = error.response?.status;
     const payload: ApiFailure | undefined = error.response?.data as ApiFailure | undefined;
-    const requestUrl = error.config?.url ?? '';
-
-    // 401 + a session-bearing request -> broadcast so the UI can react.
-    // Skipped for /auth/me (a plain "who am I" probe must not flash the UI).
-    if (status === 401 && !requestUrl.includes(API_ENDPOINTS.me)) {
-      window.dispatchEvent(
-        new CustomEvent<AuthEventDetail>(SESSION_EXPIRED_EVENT, {
-          detail: { reason: 'unauthorized' },
-        }),
-      );
-    }
 
     return new ApiRequestError({
       status,
@@ -56,7 +71,7 @@ export function toApiRequestError(error: unknown): ApiRequestError {
 
 function fallbackMessage(status?: number): string {
   if (status === undefined) {
-    return 'Cannot reach the server. Check your connection.';
+    return 'Cannot reach the app. Check your connection and try again.';
   }
   if (status === 429) {
     return 'Too many attempts. Please wait a moment and try again.';

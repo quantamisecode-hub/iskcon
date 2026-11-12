@@ -1,6 +1,7 @@
 # Backend gitignore (root gitignore also applies)
 node_modules/
 dist/
+# Local secrets only: backend/.env holds DATABASE_URL and passwords.
 .env
 .env.local
 .env.*.local
