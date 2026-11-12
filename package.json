@@ -3,11 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "description": "Event-Based Food Inventory & Material Management System - secure development foundation (Phase 1)",
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10"
+  },
   "scripts": {
-    "setup": "npm.cmd install --prefix frontend && npm.cmd install --prefix backend",
-    "dev:backend": "npm.cmd run dev --prefix backend",
-    "dev:frontend": "npm.cmd run dev --prefix frontend",
-    "lint": "npm.cmd run lint --prefix frontend && npm.cmd run lint --prefix backend",
-    "build": "npm.cmd run build --prefix backend && npm.cmd run build --prefix frontend"
+    "setup": "npm install --prefix frontend && npm install --prefix backend",
+    "dev:backend": "npm run dev --prefix backend",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "lint": "npm run lint --prefix frontend && npm run lint --prefix backend",
+    "build": "npm run build --prefix backend && npm run build --prefix frontend"
   }
 }
