@@ -1,9 +1,9 @@
 -- AlterTable
-ALTER TABLE `materialrequest` ADD COLUMN `issuedAt` DATETIME(3) NULL,
+ALTER TABLE `MaterialRequest` ADD COLUMN `issuedAt` DATETIME(3) NULL,
     MODIFY `status` ENUM('DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'PARTIALLY_ISSUED', 'ISSUED', 'REJECTED', 'CANCELLED') NOT NULL DEFAULT 'DRAFT';
 
 -- AlterTable
-ALTER TABLE `materialrequestitem` ADD COLUMN `approvedQuantity` DECIMAL(12, 3) NOT NULL DEFAULT 0,
+ALTER TABLE `MaterialRequestItem` ADD COLUMN `approvedQuantity` DECIMAL(12, 3) NOT NULL DEFAULT 0,
     ADD COLUMN `dishId` CHAR(36) NULL,
     ADD COLUMN `issuedQuantity` DECIMAL(12, 3) NOT NULL DEFAULT 0,
     ADD COLUMN `rejectedQuantity` DECIMAL(12, 3) NOT NULL DEFAULT 0,

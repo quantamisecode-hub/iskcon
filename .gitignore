@@ -11,6 +11,11 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+cpanel-deploy/
+*.zip
+
+# Database dumps (never commit machine-specific DB dumps)
+quanusse_iskon.sql
 
 # Environment files - NEVER commit real credentials.
 # .env / .env.local hold machine-specific secrets and are ignored.

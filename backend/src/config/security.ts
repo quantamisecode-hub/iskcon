@@ -39,7 +39,16 @@ const corsOptions: CorsOptions = {
  */
 function buildHelmetOptions(): Parameters<typeof helmet>[0] {
   return {
-    contentSecurityPolicy: env.NODE_ENV === 'production' ? undefined : false,
+    contentSecurityPolicy:
+      env.NODE_ENV === 'production'
+        ? {
+            directives: {
+              ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+              'connect-src': ["'self'", 'ws:', 'wss:', ...env.ALLOWED_ORIGINS],
+              'img-src': ["'self'", 'data:', 'blob:'],
+            },
+          }
+        : false,
     referrerPolicy: { policy: 'no-referrer' },
     // Frame + MIME protections remain ON in every environment.
     frameguard: { action: 'deny' },
