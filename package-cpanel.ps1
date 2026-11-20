@@ -18,11 +18,21 @@ if (Test-Path $zipPath) {
 Write-Host "2. Creating staging directory: $deployDir" -ForegroundColor Cyan
 New-Item -ItemType Directory -Path $deployDir | Out-Null
 New-Item -ItemType Directory -Path "$deployDir\public" | Out-Null
+New-Item -ItemType Directory -Path "$deployDir\node_modules" | Out-Null
 
 Write-Host "3. Copying compiled backend..." -ForegroundColor Cyan
 Copy-Item -Recurse "backend\dist" "$deployDir\dist"
 Copy-Item -Recurse "backend\prisma" "$deployDir\prisma"
 Copy-Item "backend\app.js" "$deployDir\"
+
+Write-Host "3b. Bundling pre-generated Prisma client with Linux binaries..." -ForegroundColor Cyan
+Copy-Item -Recurse "backend\node_modules\@prisma" "$deployDir\node_modules\@prisma"
+Copy-Item -Recurse "backend\node_modules\.prisma" "$deployDir\node_modules\.prisma"
+
+# Remove Windows binary from the cPanel bundle to reduce zip size
+if (Test-Path "$deployDir\node_modules\.prisma\client\query_engine-windows.dll.node") {
+    Remove-Item -Force "$deployDir\node_modules\.prisma\client\query_engine-windows.dll.node"
+}
 
 Write-Host "4. Generating clean production package.json (no devDependencies, no Windows lockfile)..." -ForegroundColor Cyan
 @'
@@ -33,10 +43,7 @@ Write-Host "4. Generating clean production package.json (no devDependencies, no 
   "type": "module",
   "main": "app.js",
   "scripts": {
-    "start": "node app.js",
-    "postinstall": "prisma generate",
-    "prisma:generate": "prisma generate",
-    "prisma:deploy": "prisma migrate deploy"
+    "start": "node app.js"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.2",
@@ -48,7 +55,6 @@ Write-Host "4. Generating clean production package.json (no devDependencies, no 
     "express-rate-limit": "^8.1.0",
     "helmet": "^8.1.0",
     "pino": "^9.10.0",
-    "prisma": "^6.16.0",
     "socket.io": "^4.8.4",
     "zod": "^4.1.0"
   }
