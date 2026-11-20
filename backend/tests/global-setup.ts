@@ -36,7 +36,11 @@ export default async function setup(): Promise<void> {
   await prisma.event.deleteMany();
   await prisma.dish.deleteMany();
   await prisma.eventCodeCounter.deleteMany();
+  await prisma.stockAllocation.deleteMany();
   await prisma.inventoryTransaction.deleteMany();
+  await prisma.stockLot.deleteMany();
+  await prisma.stockLotCodeCounter.deleteMany();
+  await prisma.vendor.deleteMany();
   await prisma.inventory.deleteMany();
   await prisma.foodItem.deleteMany();
   await prisma.category.deleteMany();

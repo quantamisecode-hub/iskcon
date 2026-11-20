@@ -5,6 +5,8 @@ import {
   dishPath,
   dishStatusPath,
   eventCancelPath,
+  eventDispatchPath,
+  eventDispatchVerifiersPath,
   eventDishMaterialPath,
   eventDishMaterialsPath,
   eventDishPath,
@@ -12,6 +14,7 @@ import {
   eventMaterialSummaryPath,
   eventPath,
   eventStatusPath,
+  eventUndoPath,
 } from '../../../constants/apiEndpoints';
 import { apiClient } from '../../../services/api/apiClient';
 import type { ApiSuccess } from '../../../types/api';
@@ -95,10 +98,16 @@ export interface CreateEventPayload {
   description?: string | null;
   eventDate: string;
   startTime: string;
-  endTime?: string | null;
   numberOfPeople: number;
   location?: string | null;
   notes?: string | null;
+  donationAmount?: number | null;
+  donationGivenBy?: string | null;
+  trNumber?: string | null;
+  eventType?: string | null;
+  servingType?: string | null;
+  contactPerson?: string | null;
+  mobileNumber?: string | null;
   /** Only DRAFT | PLANNING are accepted at creation; further transitions go through the status machine. */
   status?: 'DRAFT' | 'PLANNING';
 }
@@ -115,9 +124,47 @@ export async function updateEvent(id: string, payload: Partial<CreateEventPayloa
   return response.data.data;
 }
 
+/** POST /api/v1/events/:id/undo — revert READY -> PLANNING or COMPLETED -> READY. */
+export async function undoEvent(id: string): Promise<EventDetail> {
+  const response = await apiClient.post<ApiSuccess<EventDetail>>(eventUndoPath(id));
+  return response.data.data;
+}
+
+/** Active executors available as the dispatch verifier (ADMIN + EXECUTOR). */
+export interface DispatchVerifier {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+}
+
+export async function fetchDispatchVerifiers(eventId: string): Promise<DispatchVerifier[]> {
+  const response = await apiClient.get<ApiSuccess<DispatchVerifier[]>>(eventDispatchVerifiersPath(eventId));
+  return response.data.data;
+}
+
+/** POST /api/v1/events/:id/dispatch — record destination + verified-by (status unchanged). */
+export async function dispatchEvent(
+  id: string,
+  payload: { destinationAddress: string; verifiedById: string },
+): Promise<EventDetail> {
+  const response = await apiClient.post<ApiSuccess<EventDetail>>(eventDispatchPath(id), payload);
+  return response.data.data;
+}
+
 /** PATCH /api/v1/events/:id/status */
-export async function changeEventStatus(id: string, status: string): Promise<EventDetail> {
-  const response = await apiClient.patch<ApiSuccess<EventDetail>>(eventStatusPath(id), { status });
+export interface CompleteEventDetails {
+  donationType?: string;
+  donationAmount?: number | null;
+  trNumber?: string | null;
+}
+
+export async function changeEventStatus(
+  id: string,
+  status: string,
+  details?: CompleteEventDetails,
+): Promise<EventDetail> {
+  const response = await apiClient.patch<ApiSuccess<EventDetail>>(eventStatusPath(id), { status, ...details });
   return response.data.data;
 }
 
@@ -202,7 +249,7 @@ export async function addEventDish(eventId: string, dishId: string, notes?: stri
 export async function updateEventDish(
   eventId: string,
   eventDishId: string,
-  payload: { displayOrder?: number; notes?: string | null },
+  payload: { displayOrder?: number; notes?: string | null; quantity?: number | null; quantityUnit?: string | null },
 ): Promise<EventDetail> {
   const response = await apiClient.patch<ApiSuccess<EventDetail>>(eventDishPath(eventId, eventDishId), payload);
   return response.data.data;

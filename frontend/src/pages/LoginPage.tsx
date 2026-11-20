@@ -7,6 +7,8 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { FieldLabel } from '../components/ui/FieldLabel';
+
 
 /** Only same-app paths (never `//host` or absolute URLs) may be a post-login target. */
 function safeRedirectTarget(from: unknown): string {
@@ -132,12 +134,12 @@ export function LoginPage() {
           <form onSubmit={handleSubmit} className="mt-7 space-y-5" noValidate={false}>
             {/* Email */}
             <div>
-              <label
+              <FieldLabel
                 htmlFor="email"
                 className="mb-1.5 block text-xs font-semibold tracking-wide text-ink"
               >
                 Email address
-              </label>
+              </FieldLabel>
               <div className="relative">
                 <MailIcon className="pointer-events-none absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-muted" />
                 <input
@@ -157,12 +159,12 @@ export function LoginPage() {
 
             {/* Password */}
             <div>
-              <label
+              <FieldLabel
                 htmlFor="password"
                 className="mb-1.5 block text-xs font-semibold tracking-wide text-ink"
               >
                 Password
-              </label>
+              </FieldLabel>
               <div className="relative">
                 <LockIcon className="pointer-events-none absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-muted" />
                 <input

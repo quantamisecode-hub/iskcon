@@ -153,7 +153,7 @@ async function createPlannedEvent(
 
 async function getStock(foodItemId: string): Promise<number> {
   const row = await prisma.inventory.findUnique({ where: { foodItemId } });
-  return row?.currentQuantity ?? -1;
+  return Number(row?.currentQuantity ?? -1);
 }
 
 async function executorRequests(
@@ -206,7 +206,9 @@ afterAll(async () => {
   // Events cascade to dishes/materials, requests + items + timeline and returns + items + timeline.
   await prisma.event.deleteMany({ where: { id: { in: createdEventIds } } });
   await prisma.dish.deleteMany({ where: { id: { in: createdDishIds } } });
-  await prisma.inventoryTransaction.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
+  await prisma.stockAllocation.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
+    await prisma.stockLot.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
+    await prisma.inventoryTransaction.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
   await prisma.inventory.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
   await prisma.foodItem.deleteMany({ where: { id: { in: createdFoodItemIds } } });
   await prisma.unit.deleteMany({ where: { id: { in: createdUnitIds } } });
@@ -265,7 +267,7 @@ describe('TC-PART-001…003 — the mission example: 100 approved, issued 30 + 4
     });
     expect(ledger).toHaveLength(3);
     expect(ledger.map((row) => Number(row.quantity))).toEqual([30, 40, 30]);
-    expect(ledger.map((row) => row.balanceAfter)).toEqual([470, 430, 400]);
+    expect(ledger.map((row) => Number(row.balanceAfter))).toEqual([470, 430, 400]);
     expect(ledger.every((row) => row.transactionType === 'STOCK_OUT')).toBe(true);
     expect(ledger.every((row) => row.performedBy === admin.user.id)).toBe(true);
 

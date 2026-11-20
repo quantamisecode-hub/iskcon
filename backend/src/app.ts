@@ -12,7 +12,16 @@ import { apiV1Router } from './routes/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** Built frontend (vite build output) — served same-origin in production. */
-const FRONTEND_DIST = path.resolve(__dirname, '../../frontend/dist');
+const FRONTEND_DIST_CANDIDATES = [
+  process.env['FRONTEND_DIST'],
+  path.resolve(__dirname, '../../frontend/dist'),
+  path.resolve(__dirname, '../public'),
+  path.resolve(__dirname, './public'),
+].filter(Boolean) as string[];
+
+const FRONTEND_DIST =
+  FRONTEND_DIST_CANDIDATES.find((p) => existsSync(path.join(p, 'index.html'))) ??
+  path.resolve(__dirname, '../../frontend/dist');
 
 /**
  * Express application assembly.
@@ -31,12 +40,12 @@ export function createApp(): Express {
   attachSecurityPipeline(app);
   app.use(cookieParser());
 
-  app.use(globalLimiter);
   app.use(originValidationMiddleware);
   app.use(requestLoggerMiddleware);
 
-  // All API surface is versioned under /api/v1.
-  app.use('/api/v1', apiV1Router);
+  // All API surface is versioned under /api/v1. The limiter is scoped to the
+  // API only so serving the built SPA/assets can never burn the request budget.
+  app.use('/api/v1', globalLimiter, apiV1Router);
 
   // Same-origin production deployment: serve the built SPA and fall back to
   // index.html for client-side routes (GET requests that accept HTML).

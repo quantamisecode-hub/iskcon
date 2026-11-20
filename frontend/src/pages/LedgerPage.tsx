@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { fetchLedger, fetchFoodItemsList, fetchLedgerEntry, type LedgerRow } from '../features/inventory/api/inventory.api';
+import { fetchLedger, fetchFoodItemsList, fetchLedgerEntry, formatINR, type LedgerRow } from '../features/inventory/api/inventory.api';
 import { Modal } from '../components/ui/Modal';
 import { Skeleton } from '../components/ui/Skeleton';
 
@@ -160,13 +160,15 @@ export function LedgerPage() {
       ) : (
         <>
           <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-sm">
-            <table className="w-full min-w-[720px] text-sm">
+            <table className="w-full min-w-[880px] text-sm">
               <thead>
                 <tr className="border-b border-border bg-background text-left text-[10px] font-bold uppercase tracking-[0.18em] text-secondary">
                   <th className="px-4 py-3">Date</th>
                   <th className="px-4 py-3">Item</th>
                   <th className="px-4 py-3">Type</th>
+                  <th className="px-4 py-3">Lot Number</th>
                   <th className="px-4 py-3 text-right">Qty</th>
+                  <th className="px-4 py-3 text-right">Cost</th>
                   <th className="px-4 py-3 text-right">Balance</th>
                   <th className="px-4 py-3">Reference</th>
                   <th className="px-4 py-3">By</th>
@@ -182,7 +184,12 @@ export function LedgerPage() {
                         {row.foodItemId ? <Link to={`/inventory/food-items/${row.foodItemId}`} onClick={(e) => e.stopPropagation()} className="hover:text-primary hover:underline">{row.item}</Link> : row.item}
                       </td>
                       <td className="px-4 py-3"><span className="rounded-full bg-background px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-secondary">{row.transactionType.replace('_', ' ')}</span></td>
+                      <td className="px-4 py-3 font-mono text-[11px] text-secondary">{row.lotNumber ?? '—'}</td>
                       <td className={`px-4 py-3 text-right font-bold tabular-nums ${isIn ? 'text-emerald-700' : row.transactionType === 'STOCK_OUT' ? 'text-red-700' : 'text-secondary'}`}>{isIn ? '+' : row.transactionType === 'STOCK_OUT' ? '−' : '±'}{Math.abs(row.quantity)} {row.unit}</td>
+                      <td className="px-4 py-3 text-right text-xs tabular-nums text-secondary">
+                        {row.totalCost === null ? '—' : formatINR(row.totalCost)}
+                        {row.unitCost !== null && <span className="block text-[10px] text-muted">@ {formatINR(row.unitCost)}</span>}
+                      </td>
                       <td className="px-4 py-3 text-right tabular-nums text-secondary">{row.balanceBefore} → {row.balanceAfter}</td>
                       <td className="px-4 py-3 text-xs text-secondary"><ReferenceCell row={row} /></td>
                       <td className="px-4 py-3 text-xs text-secondary">{row.performedBy}</td>
@@ -211,8 +218,12 @@ export function LedgerPage() {
             <dl className="space-y-3 text-sm">
               <Row k="Transaction ID" v={String(detail.id)} mono />
               <Row k="Item" v={String(detail.item)} />
+              <Row k="Vendor" v={detail.vendor ? `Vendor: ${detail.vendor.name}` : '—'} />
               <Row k="Type" v={String(detail.transactionType).replace('_', ' ')} />
               <Row k="Quantity" v={`${detail.quantity} ${detail.unit ?? ''}`} />
+              <Row k="Lot Number" v={detail.lotNumber ?? '—'} mono />
+              <Row k="Unit Cost" v={formatINR(detail.unitCost)} />
+              <Row k="Total Cost" v={formatINR(detail.totalCost)} />
               <Row k="Balance" v={`${detail.balanceBefore} → ${detail.balanceAfter}`} />
               <Row k="Reference" v={<ReferenceDetail row={detail} />} />
               <Row k="Remarks" v={String(detail.remarks ?? '—')} />

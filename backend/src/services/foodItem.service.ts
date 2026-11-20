@@ -1,4 +1,6 @@
+import { Prisma } from '@prisma/client';
 import type { FoodItem } from '@prisma/client';
+import { allocateStockFifo, createStockLot, toDecimal } from './fifoInventory.service.js';
 import { foodItemRepository } from '../repositories/foodItem.repository.js';
 import { categoryRepository } from '../repositories/category.repository.js';
 import { unitRepository } from '../repositories/unit.repository.js';
@@ -9,7 +11,6 @@ import { AUDIT_ACTIONS } from '../constants/auditActions.js';
 import { ApiError } from '../middleware/error.middleware.js';
 import { ERROR_CODES } from '../constants/errorCodes.js';
 import { prisma } from '../config/database.js';
-import type { Prisma } from '@prisma/client';
 import { emitNotification, emitToRole, SOCKET_EVENT } from '../lib/socket.js';
 import { notificationRepository } from '../repositories/notification.repository.js';
 import { transactionWithRetry } from '../lib/dbRetry.js';
@@ -24,6 +25,12 @@ import { logger } from '../utils/logger.js';
  * manual stock-out (issue is the largest stock-out in the system).
  */
 type FoodWithUnit = NonNullable<Awaited<ReturnType<typeof foodItemRepository.findById>>>;
+
+/** Round once at write time for the Decimal(12,2)/Decimal(14,2) money columns. */
+function money(value: Prisma.Decimal): Prisma.Decimal {
+  return new Prisma.Decimal(value.toFixed(2));
+}
+
 export async function maybeEmitStockAlert(food: FoodWithUnit | null, balanceAfter: number) {
   try {
     const unitSymbol = food?.unit?.symbol ?? 'units';
@@ -241,8 +248,12 @@ export const foodItemService = {
     });
   },
 
-  /** Stock In operation — concurrency-safe with row locking, idempotency, and deadlock retry. */
-  async addStock(foodItemId: string, quantity: number, performedBy: string, context: { ipAddress?: string; userAgent?: string }, referenceType?: string, referenceId?: string, idempotencyKey?: string) {
+  /** Stock In operation — concurrency-safe with row locking, idempotency, and deadlock retry.
+   *  Every stock-in now creates a FIFO lot; cost is always computed server-side. */
+  async addStock(foodItemId: string, quantity: number, performedBy: string, context: { ipAddress?: string; userAgent?: string },
+    referenceType?: string, referenceId?: string, idempotencyKey?: string, vendorId?: string | null,
+    purchaseDate?: string | null, receivedDate?: string | null, unitCost?: number | null,
+    referenceNumber?: string | null, notes?: string | null) {
     const food = await foodItemRepository.findById(foodItemId);
     if (!food) {
       throw new ApiError({ statusCode: 404, code: ERROR_CODES.NOT_FOUND, message: 'Food item not found.' });
@@ -250,6 +261,14 @@ export const foodItemService = {
     if (!Number.isFinite(quantity) || quantity <= 0) {
       throw new ApiError({ statusCode: 400, code: ERROR_CODES.VALIDATION_ERROR, message: 'Quantity must be positive.' });
     }
+
+    const qty = toDecimal(quantity);
+    const cost = unitCost === undefined || unitCost === null || !Number.isFinite(unitCost) || unitCost < 0
+      ? null
+      : toDecimal(unitCost);
+    // Never trust a client-calculated total: quantity × unitCost, server-side.
+    const totalCost = cost === null ? null : money(cost.times(qty));
+    const remarks = notes?.trim() || null;
 
     const result = await transactionWithRetry(async (tx) => {
       // Row lock: serialize all mutations on this inventory record.
@@ -273,13 +292,13 @@ export const foodItemService = {
             idempotencyKey,
             performedBy,
           }, 'Stock-in idempotent replay — movement already applied');
-          return { foodItem: food, inventory, transaction: existing, idempotent: true };
+          return { foodItem: food, inventory, transaction: existing, lot: null, idempotent: true };
         }
       }
 
       const inventory = await tx.inventory.findUnique({ where: { foodItemId } });
-      const balanceBefore = inventory?.currentQuantity ?? 0;
-      const newQuantity = balanceBefore + quantity;
+      const balanceBefore = toDecimal(inventory?.currentQuantity ?? 0);
+      const newQuantity = balanceBefore.plus(qty);
 
       const updatedInventory = await tx.inventory.upsert({
         where: { foodItemId },
@@ -291,17 +310,40 @@ export const foodItemService = {
         data: {
           foodItemId,
           transactionType: 'STOCK_IN',
-          quantity,
+          quantity: qty,
           balanceBefore,
           balanceAfter: newQuantity,
-          referenceType,
-          referenceId,
+          unitCost: cost,
+          totalCost,
+          // A human-facing invoice/reference number has no dedicated column;
+          // keep it on the auditable ledger row instead of trusting the client.
+          referenceType: referenceType ?? 'STOCK_IN',
+          referenceId: referenceId ?? referenceNumber ?? null,
           performedBy,
+          vendorId: vendorId ?? null,
+          remarks,
           idempotencyKey,
         },
       });
 
-      return { foodItem: food, inventory: updatedInventory, transaction, idempotent: false };
+      const lot = await createStockLot(tx, {
+        foodItemId,
+        quantityReceived: qty,
+        vendorId,
+        purchaseDate: purchaseDate ?? null,
+        receivedDate: receivedDate ?? purchaseDate ?? null,
+        unitCost: cost,
+        totalCost,
+        referenceType: 'STOCK_IN',
+        referenceId: transaction.id,
+        createdBy: performedBy,
+        status: 'AVAILABLE',
+      });
+
+      // Link the ledger row to the lot that now backs this stock-in.
+      await tx.inventoryTransaction.update({ where: { id: transaction.id }, data: { stockLotId: lot.id } });
+
+      return { foodItem: food, inventory: updatedInventory, transaction, lot, idempotent: false };
     });
 
     // Post-commit side effects (run once, never retried).
@@ -311,21 +353,29 @@ export const foodItemService = {
         action: AUDIT_ACTIONS.STOCK_IN,
         entityType: 'INVENTORY',
         entityId: result.transaction.id,
-        newValues: { foodItemId: food.id, quantity, balanceAfter: result.inventory!.currentQuantity },
+        newValues: {
+          foodItemId: food.id,
+          quantity,
+          balanceAfter: Number(result.transaction.balanceAfter),
+          lotNumber: result.lot?.lotNumber ?? null,
+          unitCost: cost === null ? null : cost.toNumber(),
+          totalCost: totalCost === null ? null : totalCost.toNumber(),
+        },
         ipAddress: context.ipAddress,
         userAgent: context.userAgent,
       });
 
-      await maybeEmitStockAlert(food, result.inventory!.currentQuantity);
+      await maybeEmitStockAlert(food, Number(result.transaction.balanceAfter));
 
       logger.info({
         foodItemId,
         movementType: 'STOCK_IN',
         requestedQuantity: quantity,
-        previousQuantity: result.transaction.balanceBefore,
-        resultingQuantity: result.transaction.balanceAfter,
+        previousQuantity: Number(result.transaction.balanceBefore),
+        resultingQuantity: Number(result.transaction.balanceAfter),
         status: 'COMMITTED',
         transactionId: result.transaction.id,
+        lotNumber: result.lot?.lotNumber ?? null,
         idempotencyKey,
         performedBy,
       }, 'Stock-in committed');
@@ -334,9 +384,11 @@ export const foodItemService = {
     return result;
   },
 
-  /** Stock Out operation with negative stock protection. Concurrency-safe with row locking, idempotency, and deadlock retry. */
+  /** Stock Out operation — FIFO lot consumption inside the existing transaction.
+   *  The inventory row is locked here (so the idempotency check is serialized);
+   *  the engine re-locks it and the eligible lots before consuming them. */
   async removeStock(foodItemId: string, quantity: number, performedBy: string, context: { ipAddress?: string; userAgent?: string },
-    options: { referenceType?: string | null; referenceId?: string | null; remarks?: string | null } = {}, idempotencyKey?: string) {
+    options: { referenceType?: string | null; referenceId?: string | null; remarks?: string | null; requestId?: string | null; eventId?: string | null } = {}, idempotencyKey?: string) {
     const food = await foodItemRepository.findById(foodItemId);
     if (!food) {
       throw new ApiError({ statusCode: 404, code: ERROR_CODES.NOT_FOUND, message: 'Food item not found.' });
@@ -367,45 +419,39 @@ export const foodItemService = {
             idempotencyKey,
             performedBy,
           }, 'Stock-out idempotent replay — movement already applied');
-          return { foodItem: food, inventory, transaction: existing, idempotent: true };
+          return {
+            foodItem: food, inventory, transaction: existing, idempotent: true,
+            allocations: [] as Array<{ lotNumber: string; quantityAllocated: number }>, totalCost: null, balanceAfter: Number(existing.balanceAfter),
+          };
         }
       }
 
+      // The engine appends one ledger row + one immutable allocation per lot.
+      const fifo = await allocateStockFifo(tx, {
+        foodItemId,
+        quantity,
+        actorId: performedBy,
+        requestId: options.requestId ?? null,
+        eventId: options.eventId ?? null,
+        referenceType: options.referenceType ?? 'STOCK_OUT',
+        referenceId: options.referenceId ?? null,
+        remarks: options.remarks ?? null,
+        idempotencyKey,
+      });
+
+      const firstLedgerId = fifo.transactions[0]?.id ?? '';
+      const transaction = await tx.inventoryTransaction.findUniqueOrThrow({ where: { id: firstLedgerId } });
       const inventory = await tx.inventory.findUnique({ where: { foodItemId } });
-      const balanceBefore = inventory?.currentQuantity ?? 0;
 
-      if (balanceBefore < quantity) {
-        throw new ApiError({
-          statusCode: 409,
-          code: ERROR_CODES.CONFLICT,
-          message: `Insufficient inventory. Requested ${quantity} units, but only ${balanceBefore} units are available.`,
-        });
-      }
-
-      const newQuantity = balanceBefore - quantity;
-
-      const updatedInventory = await tx.inventory.upsert({
-        where: { foodItemId },
-        update: { currentQuantity: newQuantity },
-        create: { foodItemId, currentQuantity: newQuantity },
-      });
-
-      const transaction = await tx.inventoryTransaction.create({
-        data: {
-          foodItemId,
-          transactionType: 'STOCK_OUT',
-          quantity,
-          balanceBefore,
-          balanceAfter: newQuantity,
-          referenceType: options.referenceType ?? null,
-          referenceId: options.referenceId ?? null,
-          remarks: options.remarks?.trim() || null,
-          performedBy,
-          idempotencyKey,
-        },
-      });
-
-      return { foodItem: food, inventory: updatedInventory, transaction, idempotent: false };
+      return {
+        foodItem: food,
+        inventory,
+        transaction,
+        idempotent: false,
+        allocations: fifo.allocations,
+        totalCost: fifo.totalCost,
+        balanceAfter: fifo.balanceAfter,
+      };
     });
 
     // Post-commit side effects (run once, never retried).
@@ -415,21 +461,27 @@ export const foodItemService = {
         action: AUDIT_ACTIONS.STOCK_OUT,
         entityType: 'INVENTORY',
         entityId: result.transaction.id,
-        newValues: { foodItemId: food.id, quantity, balanceAfter: result.inventory!.currentQuantity },
+        newValues: {
+          foodItemId: food.id,
+          quantity,
+          balanceAfter: result.balanceAfter,
+          lotNumbers: result.allocations.map((line) => line.lotNumber),
+          totalCost: result.totalCost,
+        },
         ipAddress: context.ipAddress,
         userAgent: context.userAgent,
       });
 
-      await maybeEmitStockAlert(food, result.inventory!.currentQuantity);
+      await maybeEmitStockAlert(food, result.balanceAfter);
 
       logger.info({
         foodItemId,
         movementType: 'STOCK_OUT',
         requestedQuantity: quantity,
-        previousQuantity: result.transaction.balanceBefore,
-        resultingQuantity: result.transaction.balanceAfter,
+        resultingQuantity: result.balanceAfter,
         status: 'COMMITTED',
         transactionId: result.transaction.id,
+        allocatedLots: result.allocations.length,
         idempotencyKey,
         performedBy,
       }, 'Stock-out committed');
@@ -475,20 +527,22 @@ export const foodItemService = {
       }
 
       const inventory = await tx.inventory.findUnique({ where: { foodItemId } });
-      const balanceBefore = inventory?.currentQuantity ?? 0;
+      const balanceBefore = toDecimal(inventory?.currentQuantity ?? 0);
+      const qty = toDecimal(quantity);
 
-      let newQuantity: number;
+      let newQuantity: Prisma.Decimal;
       if (direction === 'IN') {
-        newQuantity = balanceBefore + quantity;
+        newQuantity = balanceBefore.plus(qty);
       } else {
-        if (balanceBefore < quantity) {
+        if (balanceBefore.lessThan(qty)) {
           throw new ApiError({
             statusCode: 409,
             code: ERROR_CODES.CONFLICT,
-            message: `Insufficient inventory. Requested ${quantity} units, but only ${balanceBefore} units are available.`,
+            message: `Insufficient inventory. Requested ${quantity} units, but only ${balanceBefore.toString()} units are available.`,
           });
         }
-        newQuantity = balanceBefore - quantity;
+        newQuantity = balanceBefore.minus(qty);
+        if (newQuantity.isNegative()) newQuantity = new Prisma.Decimal(0);
       }
 
       const updatedInventory = await tx.inventory.upsert({
@@ -501,7 +555,7 @@ export const foodItemService = {
         data: {
           foodItemId,
           transactionType: 'ADJUSTMENT',
-          quantity: direction === 'IN' ? quantity : -Math.abs(quantity),
+          quantity: direction === 'IN' ? qty : qty.negated(),
           balanceBefore,
           balanceAfter: newQuantity,
           performedBy,
@@ -521,19 +575,19 @@ export const foodItemService = {
         action: actionName,
         entityType: 'INVENTORY',
         entityId: result.transaction.id,
-        newValues: { foodItemId: food.id, quantity, direction, balanceAfter: result.inventory!.currentQuantity },
+        newValues: { foodItemId: food.id, quantity, direction, balanceAfter: Number(result.transaction.balanceAfter) },
         ipAddress: context.ipAddress,
         userAgent: context.userAgent,
       });
 
-      await maybeEmitStockAlert(food, result.inventory!.currentQuantity);
+      await maybeEmitStockAlert(food, Number(result.transaction.balanceAfter));
 
       logger.info({
         foodItemId,
         movementType: `ADJUSTMENT_${direction}`,
         requestedQuantity: quantity,
-        previousQuantity: result.transaction.balanceBefore,
-        resultingQuantity: result.transaction.balanceAfter,
+        previousQuantity: Number(result.transaction.balanceBefore),
+        resultingQuantity: Number(result.transaction.balanceAfter),
         status: 'COMMITTED',
         transactionId: result.transaction.id,
         idempotencyKey,
@@ -552,7 +606,8 @@ export const foodItemService = {
     }
 
     const inventory = await inventoryRepository.findByFoodItemId(foodItemId);
-    const currentQty = inventory?.currentQuantity ?? 0;
+    // Decimal at rest → number at the API boundary.
+    const currentQty = Number(inventory?.currentQuantity ?? 0);
     const minStock = food.minimumStock;
     const reorderLvl = food.reorderLevel;
 
@@ -577,10 +632,16 @@ export const foodItemService = {
     if (!food) {
       throw new ApiError({ statusCode: 404, code: ERROR_CODES.NOT_FOUND, message: 'Food item not found.' });
     }
-    const [inventory, recentTransactions, relatedEventMaterials, relatedRequests, status] = await Promise.all([
+    const activeLotWhere: Prisma.StockLotWhereInput = {
+      foodItemId,
+      status: { in: ['AVAILABLE', 'PARTIALLY_CONSUMED'] },
+      quantityRemaining: { gt: 0 },
+    };
+    const [inventory, recentTransactions, relatedEventMaterials, relatedRequests, status, stockLotCount, activeLots] = await Promise.all([
       inventoryRepository.findByFoodItemId(foodItemId),
       prisma.inventoryTransaction.findMany({
         where: { foodItemId },
+        include: { vendor: { select: { id: true, name: true } } },
         orderBy: { createdAt: 'desc' },
         take: 10,
       }),
@@ -597,6 +658,8 @@ export const foodItemService = {
         take: 25,
       }),
       this.getStockStatus(foodItemId),
+      prisma.stockLot.count({ where: activeLotWhere }),
+      prisma.stockLot.findMany({ where: activeLotWhere, select: { quantityRemaining: true, unitCost: true } }),
     ]);
     // Scope related events/requests to the actor (P2 IDOR fix): only events in the actor's admin scope.
     let inScopeEvents = relatedEventMaterials;
@@ -611,10 +674,15 @@ export const foodItemService = {
         inScopeRequests = relatedRequests.filter((r) => r.request.requestedById === actor.id);
       }
     }
-    const currentQty = inventory?.currentQuantity ?? 0;
+    const currentQty = Number(inventory?.currentQuantity ?? 0);
+    let inventoryValueDecimal = new Prisma.Decimal(0);
+    for (const lot of activeLots) {
+      if (lot.unitCost === null) continue;
+      inventoryValueDecimal = inventoryValueDecimal.plus(toDecimal(lot.unitCost).times(toDecimal(lot.quantityRemaining)));
+    }
     return {
       foodItem: food,
-      inventory,
+      inventory: inventory ? { ...inventory, currentQuantity: currentQty } : null,
       currentQuantity: currentQty,
       status: status.status,
       stockSummary: {
@@ -625,14 +693,15 @@ export const foodItemService = {
       recentTransactions: recentTransactions.map((tx) => ({
         id: tx.id,
         transactionType: tx.transactionType,
-        quantity: tx.quantity,
-        balanceBefore: tx.balanceBefore,
-        balanceAfter: tx.balanceAfter,
+        quantity: Number(tx.quantity),
+        balanceBefore: Number(tx.balanceBefore),
+        balanceAfter: Number(tx.balanceAfter),
         referenceType: tx.referenceType,
         referenceId: tx.referenceId,
         remarks: tx.remarks,
         performedBy: tx.performedBy,
         createdAt: tx.createdAt.toISOString(),
+        vendor: tx.vendor ? { id: tx.vendor.id, name: tx.vendor.name } : null,
       })),
       relatedEvents: inScopeEvents.map((m) => ({
         eventId: m.eventDish.event.id,
@@ -648,6 +717,8 @@ export const foodItemService = {
         createdAt: r.request.createdAt.toISOString(),
         quantity: Number(r.plannedQuantity),
       })),
+      stockLotCount,
+      inventoryValue: inventoryValueDecimal.toNumber(),
     };
   },
 
@@ -665,7 +736,7 @@ export const foodItemService = {
     for (const row of rows) {
       if (row.foodItem.isActive) totalItems += 1;
       totalStockLines += 1;
-      const qty = row.currentQuantity;
+      const qty = Number(row.currentQuantity);
       if (qty === 0) outOfStock += 1;
       else if (qty <= row.foodItem.minimumStock) lowStock += 1;
       else if (qty <= row.foodItem.reorderLevel) reorderRequired += 1;
@@ -684,7 +755,7 @@ export const foodItemService = {
    */
   async reconcileInventory(foodItemId: string) {
     const inventory = await prisma.inventory.findUnique({ where: { foodItemId } });
-    const actual = inventory?.currentQuantity ?? 0;
+    const actual = toDecimal(inventory?.currentQuantity ?? 0);
 
     const transactions = await prisma.inventoryTransaction.findMany({
       where: { foodItemId },
@@ -692,23 +763,24 @@ export const foodItemService = {
       orderBy: { createdAt: 'asc' },
     });
 
-    const openingBalance = Number(transactions[0]?.balanceBefore ?? 0);
+    const openingBalance = toDecimal(transactions[0]?.balanceBefore ?? 0);
 
-    const signedSum = transactions.reduce((acc, t) => {
-      const q = Number(t.quantity);
-      if (t.transactionType === 'STOCK_OUT') return acc - q;
-      return acc + q;
-    }, 0);
+    let signedSum = new Prisma.Decimal(0);
+    for (const t of transactions) {
+      const q = toDecimal(t.quantity);
+      signedSum = t.transactionType === 'STOCK_OUT' ? signedSum.minus(q) : signedSum.plus(q);
+    }
 
-    const expected = openingBalance + signedSum;
+    const expected = openingBalance.plus(signedSum);
 
+    // Decimal for the comparison; plain numbers only at the response boundary.
     return {
       foodItemId,
-      openingQuantityAssumed: openingBalance,
-      expectedQuantity: expected,
-      actualQuantity: actual,
-      reconciled: expected === actual,
-      difference: actual - expected,
+      openingQuantityAssumed: openingBalance.toNumber(),
+      expectedQuantity: expected.toNumber(),
+      actualQuantity: actual.toNumber(),
+      reconciled: expected.eq(actual),
+      difference: actual.minus(expected).toNumber(),
       transactionCount: transactions.length,
     };
   },

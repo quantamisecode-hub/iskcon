@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { APP_CONSTANTS, DISH_QUANTITY_UNITS, DONATION_TYPES, EVENT_TYPES, SERVING_TYPES } from '../constants/app.js';
 
 /**
  * Shared field schemas for events, dishes, materials and calendar queries.
@@ -23,17 +24,23 @@ export const createEventSchema = z
     description: z.string().trim().max(2000).optional().nullable(),
     eventDate: eventDateField,
     startTime: timeField,
-    endTime: timeField.optional().nullable(),
     numberOfPeople: z.coerce.number().int().gt(0),
     location: z.string().trim().max(200).optional().nullable(),
     notes: z.string().trim().max(2000).optional().nullable(),
+    donationAmount: z
+      .number()
+      .nonnegative('Donation amount must not be negative')
+      .optional()
+      .nullable(),
+    donationGivenBy: z.string().trim().max(200).optional().nullable(),
+    trNumber: z.string().trim().max(APP_CONSTANTS.event.donationTrNumberMaxLength).optional().nullable(),
+    eventType: z.enum(EVENT_TYPES).optional().nullable(),
+    servingType: z.enum(SERVING_TYPES).optional().nullable(),
+    contactPerson: z.string().trim().max(APP_CONSTANTS.event.contactPersonMaxLength).optional().nullable(),
+    mobileNumber: z.string().trim().max(APP_CONSTANTS.event.mobileNumberMaxLength).optional().nullable(),
     status: z.enum(['DRAFT', 'PLANNING']).optional(),
   })
-  .strict()
-  .refine(
-    (data) => !data.endTime || data.endTime >= data.startTime,
-    { message: 'endTime must be greater than or equal to startTime', path: ['endTime'] },
-  );
+  .strict();
 
 export const updateEventSchema = z
   .object({
@@ -41,26 +48,48 @@ export const updateEventSchema = z
     description: z.string().trim().max(2000).optional().nullable(),
     eventDate: eventDateField.optional(),
     startTime: timeField.optional(),
-    endTime: timeField.optional().nullable(),
     numberOfPeople: z.coerce.number().int().gt(0).optional(),
     location: z.string().trim().max(200).optional().nullable(),
     notes: z.string().trim().max(2000).optional().nullable(),
+    donationAmount: z
+      .number()
+      .nonnegative('Donation amount must not be negative')
+      .optional()
+      .nullable(),
+    donationGivenBy: z.string().trim().max(200).optional().nullable(),
+    trNumber: z.string().trim().max(APP_CONSTANTS.event.donationTrNumberMaxLength).optional().nullable(),
+    eventType: z.enum(EVENT_TYPES).optional().nullable(),
+    servingType: z.enum(SERVING_TYPES).optional().nullable(),
+    contactPerson: z.string().trim().max(APP_CONSTANTS.event.contactPersonMaxLength).optional().nullable(),
+    mobileNumber: z.string().trim().max(APP_CONSTANTS.event.mobileNumberMaxLength).optional().nullable(),
   })
-  .strict()
-  .refine(
-    (data) => !data.startTime || !data.endTime || data.endTime >= data.startTime,
-    { message: 'endTime must be greater than or equal to startTime', path: ['endTime'] },
-  );
+  .strict();
 
 export const changeEventStatusSchema = z
   .object({
     status: z.enum(EVENT_STATUSES),
     /** Optional cancellation reason; POST /events/:id/cancel requires it. */
     reason: z.string().trim().min(1).max(1000).optional(),
+    /** Captured when an event is marked COMPLETED. Admin-only in the service. */
+    donationType: z.enum(DONATION_TYPES).optional(),
+    donationAmount: z.coerce.number().nonnegative().optional().nullable(),
+    trNumber: z.string().trim().max(APP_CONSTANTS.event.donationTrNumberMaxLength).optional().nullable(),
   })
   .strict();
 
 /** §28: cancellation always carries a mandatory reason. */
+/** Ready for Dispatch: destination + an active EXECUTOR verifier. */
+export const dispatchEventSchema = z
+  .object({
+    destinationAddress: z
+      .string()
+      .trim()
+      .min(1, 'A destination address is required.')
+      .max(APP_CONSTANTS.dispatch.destinationAddressMaxLength),
+    verifiedById: z.string().uuid('verifiedById must be a valid UUID.'),
+  })
+  .strict();
+
 export const cancelEventSchema = z
   .object({
     reason: z.string().trim().min(1, 'A cancellation reason is required.').max(1000),
@@ -142,6 +171,8 @@ export const createEventDishSchema = z
     dishId: z.string().uuid(),
     notes: z.string().trim().max(1000).optional().nullable(),
     displayOrder: z.coerce.number().int().min(0).optional(),
+    quantity: z.coerce.number().positive().max(APP_CONSTANTS.dishQuantity.max).optional().nullable(),
+    quantityUnit: z.enum(DISH_QUANTITY_UNITS).optional().nullable(),
   })
   .strict();
 
@@ -149,6 +180,8 @@ export const updateEventDishSchema = z
   .object({
     displayOrder: z.coerce.number().int().min(0).optional(),
     notes: z.string().trim().max(1000).optional().nullable(),
+    quantity: z.coerce.number().positive().max(APP_CONSTANTS.dishQuantity.max).optional().nullable(),
+    quantityUnit: z.enum(DISH_QUANTITY_UNITS).optional().nullable(),
   })
   .strict();
 

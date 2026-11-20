@@ -5,7 +5,9 @@ import {
   updateAvatarRequest,
   updateProfileRequest,
 } from '../features/auth/api/auth.api';
+import { FieldLabel } from '../components/ui/FieldLabel';
 import {
+
   CameraIcon,
   LockIcon,
   MailIcon,
@@ -291,16 +293,16 @@ export function ProfilePage() {
 
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label htmlFor="p-first" className="mb-1.5 block text-xs font-semibold text-ink">First name</label>
+            <FieldLabel htmlFor="p-first" className="mb-1.5 block text-xs font-semibold text-ink">First name</FieldLabel>
             <input id="p-first" type="text" required value={firstName} onChange={(e) => setFirstName(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
           </div>
           <div>
-            <label htmlFor="p-last" className="mb-1.5 block text-xs font-semibold text-ink">Last name</label>
+            <FieldLabel htmlFor="p-last" className="mb-1.5 block text-xs font-semibold text-ink">Last name</FieldLabel>
             <input id="p-last" type="text" required value={lastName} onChange={(e) => setLastName(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
           </div>
         </div>
         <div className="mt-4">
-          <label htmlFor="p-email" className="mb-1.5 block text-xs font-semibold text-ink">Email address</label>
+          <FieldLabel htmlFor="p-email" className="mb-1.5 block text-xs font-semibold text-ink">Email address</FieldLabel>
           <div className="relative">
             <MailIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
             <input id="p-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white py-2.5 pl-10 pr-3.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
@@ -310,9 +312,9 @@ export function ProfilePage() {
 
         {emailChanged && (
           <div className="mt-4">
-            <label htmlFor="p-email-pass" className="mb-1.5 block text-xs font-semibold text-ink">
+            <FieldLabel htmlFor="p-email-pass" className="mb-1.5 block text-xs font-semibold text-ink">
               Current password <span className="font-normal text-muted">(required to change email)</span>
-            </label>
+            </FieldLabel>
             <div className="relative">
               <LockIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
               <input id="p-email-pass" type="password" autoComplete="current-password" value={emailPassword} onChange={(e) => setEmailPassword(e.target.value)} placeholder="Enter your password to confirm" className="w-full rounded-xl border border-amber-300 bg-amber-50/50 py-2.5 pl-10 pr-3.5 text-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-200" />
@@ -342,16 +344,16 @@ export function ProfilePage() {
 
         <div className="mt-4 space-y-4">
           <div>
-            <label htmlFor="p-cur" className="mb-1.5 block text-xs font-semibold text-ink">Current password</label>
+            <FieldLabel htmlFor="p-cur" className="mb-1.5 block text-xs font-semibold text-ink">Current password</FieldLabel>
             <input id="p-cur" type="password" required autoComplete="current-password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label htmlFor="p-new" className="mb-1.5 block text-xs font-semibold text-ink">New password</label>
+              <FieldLabel htmlFor="p-new" className="mb-1.5 block text-xs font-semibold text-ink">New password</FieldLabel>
               <input id="p-new" type="password" required autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Min 8 chars" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
             </div>
             <div>
-              <label htmlFor="p-confirm" className="mb-1.5 block text-xs font-semibold text-ink">Confirm new password</label>
+              <FieldLabel htmlFor="p-confirm" className="mb-1.5 block text-xs font-semibold text-ink">Confirm new password</FieldLabel>
               <input id="p-confirm" type="password" required autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
             </div>
           </div>

@@ -154,7 +154,7 @@ async function createPlannedEvent(
 
 async function getStock(foodItemId: string): Promise<number> {
   const row = await prisma.inventory.findUnique({ where: { foodItemId } });
-  return row?.currentQuantity ?? -1;
+  return Number(row?.currentQuantity ?? -1);
 }
 
 /** Executor raises + submits a request for `requestedQuantity`. */
@@ -206,7 +206,9 @@ afterAll(async () => {
   // Events cascade to dishes/materials, requests + items + timeline, returns + items + timeline.
   await prisma.event.deleteMany({ where: { id: { in: createdEventIds } } });
   await prisma.dish.deleteMany({ where: { id: { in: createdDishIds } } });
-  await prisma.inventoryTransaction.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
+  await prisma.stockAllocation.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
+    await prisma.stockLot.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
+    await prisma.inventoryTransaction.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
   await prisma.inventory.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
   await prisma.foodItem.deleteMany({ where: { id: { in: createdFoodItemIds } } });
   await prisma.unit.deleteMany({ where: { id: { in: createdUnitIds } } });
@@ -492,8 +494,8 @@ describe('§97–§100 material returns', () => {
     });
     expect(ledger?.transactionType).toBe('RETURN');
     expect(ledger?.referenceType).toBe('MATERIAL_RETURN');
-    expect(ledger?.balanceBefore).toBe(50);
-    expect(ledger?.balanceAfter).toBe(70);
+    expect(Number(ledger?.balanceBefore)).toBe(50);
+    expect(Number(ledger?.balanceAfter)).toBe(70);
   });
 
   it('rejects a return without moving stock and marks every line rejected', async () => {

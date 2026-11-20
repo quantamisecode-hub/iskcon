@@ -13,9 +13,12 @@ import {
   type RequestTimelineEntry,
 } from '../features/requests/api/requests.api';
 import { useAuth } from '../hooks/useAuth';
+import { fetchFifoPreview, formatINR, type FifoPreview } from '../features/inventory/api/inventory.api';
 import { Modal } from '../components/ui/Modal';
 import { Skeleton } from '../components/ui/Skeleton';
 import { ArrowLeftIcon, CheckIcon, PackageIcon } from '../components/ui/icons';
+import { FieldLabel } from '../components/ui/FieldLabel';
+
 
 const STATUS_BADGE: Record<MaterialRequestStatus, string> = {
   DRAFT: 'border-slate-300 bg-slate-100 text-slate-800',
@@ -362,7 +365,7 @@ export function RequestDetailPage() {
       {showReject && (
         <Modal title="Reject Request" onClose={() => setShowReject(false)} maxWidthClass="max-w-md">
           <div className="space-y-3">
-            <label htmlFor="reject-reason" className="block text-xs font-semibold text-ink">Reason *</label>
+            <FieldLabel htmlFor="reject-reason" className="block text-xs font-semibold text-ink">Reason *</FieldLabel>
             <textarea id="reject-reason" rows={4} value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="e.g. Insufficient stock available" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
             {rejectReason.trim() === '' && <p className="text-[11px] text-muted">A reason is required so the requester knows what to fix.</p>}
             <div className="flex items-center justify-end gap-3 pt-1">
@@ -377,6 +380,7 @@ export function RequestDetailPage() {
         <IssueModal
           items={issuableItems}
           quantities={issueQuantities}
+          isAdmin={isAdmin}
           onChange={(itemId, value) => setIssueQuantities((prev) => ({ ...prev, [itemId]: value }))}
           isBusy={isBusy}
           onCancel={() => setShowIssue(false)}
@@ -413,6 +417,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 function IssueModal({
   items,
   quantities,
+  isAdmin,
   onChange,
   isBusy,
   onCancel,
@@ -420,11 +425,45 @@ function IssueModal({
 }: {
   items: RequestItemView[];
   quantities: Record<string, string>;
+  isAdmin: boolean;
   onChange: (itemId: string, value: string) => void;
   isBusy: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const [previews, setPreviews] = useState<Record<string, FifoPreview | null>>({});
+
+  // ADMIN-only: debounce the FIFO lookup for every item with an entered quantity.
+  // Executors never reach this modal, but the gate is explicit for defence in depth.
+  useEffect(() => {
+    if (!isAdmin) return;
+    const requested = items
+      .map((item) => ({ item, quantity: Number((quantities[item.id] ?? '').trim()) }))
+      .filter(({ quantity }) => Number.isFinite(quantity) && quantity > 0);
+    if (requested.length === 0) {
+      setPreviews({});
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      Promise.all(
+        requested.map(async ({ item, quantity }) => {
+          try {
+            return [item.id, await fetchFifoPreview(item.foodItemId, quantity)] as const;
+          } catch {
+            return [item.id, null] as const;
+          }
+        }),
+      ).then((entries) => {
+        if (!cancelled) setPreviews(Object.fromEntries(entries));
+      });
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isAdmin, items, quantities]);
+
   const lines = items.map((item) => {
     const raw = (quantities[item.id] ?? '').trim();
     const quantity = raw === '' ? 0 : Number(raw);
@@ -433,6 +472,12 @@ function IssueModal({
     return { item, quantity, valid, after };
   });
   const allValid = lines.every((line) => line.valid);
+  const totalFifoCost = isAdmin
+    ? Object.values(previews).reduce<number | null>((sum, preview) => {
+        if (preview === null || preview.totalCost === null) return sum;
+        return (sum ?? 0) + preview.totalCost;
+      }, null)
+    : null;
 
   return (
     <Modal title="Confirm Stock Issue" onClose={onCancel} maxWidthClass="max-w-2xl">
@@ -488,6 +533,62 @@ function IssueModal({
           ))}
           <p className="mt-2 text-muted">The server re-reads stock inside the transaction and will refuse any oversell.</p>
         </div>
+        {isAdmin && (
+          <section className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+            <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-secondary">FIFO Lot Allocation (Admin only)</h3>
+            <div className="mt-3 space-y-3">
+              {lines.filter((line) => line.quantity > 0).map(({ item, quantity }) => {
+                const preview = previews[item.id];
+                return (
+                  <div key={item.id} className="rounded-lg border border-border bg-card p-3">
+                    <p className="text-xs font-bold text-ink">
+                      {item.foodItemName} <span className="font-normal text-muted">· {quantity} {item.unitSymbol}</span>
+                    </p>
+                    {!preview ? (
+                      <p className="mt-1.5 text-[11px] text-secondary">Loading FIFO preview…</p>
+                    ) : !preview.sufficient ? (
+                      <p role="status" className="mt-1.5 text-[11px] font-semibold text-danger">
+                        Insufficient stock — only {preview.availableQuantity} {item.unitSymbol} available in FIFO lots.
+                      </p>
+                    ) : preview.allocations.length === 0 ? (
+                      <p className="mt-1.5 text-[11px] text-secondary">No costed lots available for this item.</p>
+                    ) : (
+                      <div className="mt-2 overflow-x-auto rounded-lg border border-border">
+                        <table className="w-full text-[11px]">
+                          <thead>
+                            <tr className="border-b border-border bg-background text-left text-[9px] font-bold uppercase tracking-wider text-secondary">
+                              <th className="px-2 py-2">Lot</th>
+                              <th className="px-2 py-2 text-right">Rate</th>
+                              <th className="px-2 py-2 text-right">Qty</th>
+                              <th className="px-2 py-2 text-right">Cost</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {preview.allocations.map((allocation, index) => (
+                              <tr key={`${allocation.lotNumber}-${index}`} className="border-b border-border/60 last:border-0">
+                                <td className="px-2 py-2 font-mono font-semibold text-ink">{allocation.lotNumber}</td>
+                                <td className="px-2 py-2 text-right tabular-nums text-secondary">{formatINR(allocation.unitCost)}</td>
+                                <td className="px-2 py-2 text-right tabular-nums text-ink">{allocation.quantityAllocated}</td>
+                                <td className="px-2 py-2 text-right tabular-nums text-ink">{formatINR(allocation.totalCost)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-3 flex items-baseline justify-between gap-3 border-t border-border/60 pt-3">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-secondary">Total FIFO Cost</span>
+              <span className="text-sm font-bold tabular-nums text-ink">{formatINR(totalFifoCost)}</span>
+            </div>
+            <p className="mt-2 text-[10px] leading-snug text-muted">
+              The system will issue the oldest available stock first. Preview values are recalculated when you confirm the issue.
+            </p>
+          </section>
+        )}
         <div className="flex items-center justify-end gap-3">
           <button type="button" onClick={onCancel} className="rounded-xl border border-border-strong/60 px-4 py-2.5 text-sm font-semibold text-ink hover:bg-background">Cancel</button>
           <button type="button" disabled={isBusy || !allValid} onClick={onConfirm} className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-60">

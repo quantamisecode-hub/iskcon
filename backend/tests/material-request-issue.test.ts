@@ -156,7 +156,7 @@ async function createPlannedEvent(
 
 async function getStock(foodItemId: string): Promise<number> {
   const row = await prisma.inventory.findUnique({ where: { foodItemId } });
-  return row?.currentQuantity ?? -1;
+  return Number(row?.currentQuantity ?? -1);
 }
 
 /** Executor raises + submits a request for `requestedQuantity` of the single plan line. */
@@ -196,7 +196,9 @@ afterAll(async () => {
   // Events cascade to event dishes/materials, material requests + items + timeline.
   await prisma.event.deleteMany({ where: { id: { in: createdEventIds } } });
   await prisma.dish.deleteMany({ where: { id: { in: createdDishIds } } });
-  await prisma.inventoryTransaction.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
+  await prisma.stockAllocation.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
+    await prisma.stockLot.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
+    await prisma.inventoryTransaction.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
   await prisma.inventory.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
   await prisma.foodItem.deleteMany({ where: { id: { in: createdFoodItemIds } } });
   await prisma.unit.deleteMany({ where: { id: { in: createdUnitIds } } });
@@ -282,8 +284,8 @@ describe('§77 acceptance — approval does not move stock; only issue does', ()
       orderBy: { createdAt: 'asc' },
     });
     expect(ledger).toHaveLength(2);
-    expect(ledger.map((row) => row.quantity)).toEqual([30, 20]);
-    expect(ledger.map((row) => row.balanceAfter)).toEqual([70, 50]);
+    expect(ledger.map((row) => Number(row.quantity))).toEqual([30, 20]);
+    expect(ledger.map((row) => Number(row.balanceAfter))).toEqual([70, 50]);
     expect(ledger.every((row) => row.transactionType === 'STOCK_OUT')).toBe(true);
 
     const notifications = await prisma.notification.findMany({

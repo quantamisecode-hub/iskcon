@@ -38,7 +38,6 @@ export function EventList({
           >
             <div className="w-20 flex-none text-center">
               <p className="text-sm font-bold leading-none text-primary tabular-nums">{event.startTime}</p>
-              {event.endTime && <p className="mt-1 text-[10px] font-medium text-muted tabular-nums">to {event.endTime}</p>}
             </div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-ink transition group-hover:text-primary-deep">

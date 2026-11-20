@@ -2,7 +2,11 @@ import { useEffect, useState } from 'react';
 import { createEvent, updateEvent } from '../api/events.api';
 import { useAuth } from '../../../hooks/useAuth';
 import { InfoIcon } from '../../../components/ui/icons';
+import { APP_CONSTANTS, EVENT_TYPES, SERVING_TYPES } from '../../../constants/appConstants';
+import { displayDateToIso, isoDateToDisplay, time24ToParts, timePartsTo24 } from '../../../utils/dateTime';
 import type { EventDetail } from '../types';
+import { FieldLabel } from '../../../components/ui/FieldLabel';
+
 
 /**
  * Shared create/edit event form rendered inside a modal (edit) or a dedicated page (create).
@@ -26,19 +30,27 @@ export function EventForm({
   const { user } = useAuth();
   const [name, setName] = useState(event?.name ?? '');
   const [description, setDescription] = useState(event?.description ?? '');
-  const [eventDate, setEventDate] = useState(event?.eventDate ?? initialDate ?? '');
-  const [startTime, setStartTime] = useState(event?.startTime ?? '10:00');
-  const [endTime, setEndTime] = useState(event?.endTime ?? '');
+  const initialTime = time24ToParts(event?.startTime ?? '10:00');
+  const [eventDate, setEventDate] = useState(isoDateToDisplay(event?.eventDate ?? initialDate ?? ''));
+  const [timeHour, setTimeHour] = useState(initialTime.hour);
+  const [timeMinute, setTimeMinute] = useState(initialTime.minute);
+  const [timePeriod, setTimePeriod] = useState<'AM' | 'PM'>(initialTime.period);
   const [numberOfPeople, setNumberOfPeople] = useState<string>(String(event?.numberOfPeople ?? ''));
   const [status, setStatus] = useState<'DRAFT' | 'PLANNING'>('DRAFT');
+  const [eventType, setEventType] = useState(event?.eventType ?? '');
+  const [servingType, setServingType] = useState(event?.servingType ?? '');
+  const [contactPerson, setContactPerson] = useState(event?.contactPerson ?? '');
+  const [mobileNumber, setMobileNumber] = useState(event?.mobileNumber ?? '');
   const [location, setLocation] = useState(event?.location ?? '');
   const [notes, setNotes] = useState(event?.notes ?? '');
+  const [donationAmount, setDonationAmount] = useState<string>(String(event?.donationAmount ?? ''));
+  const [donationGivenBy, setDonationGivenBy] = useState(event?.donationGivenBy ?? '');
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     setError(null);
-  }, [name, eventDate, startTime, endTime, numberOfPeople, status]);
+  }, [name, eventDate, timeHour, timeMinute, timePeriod, numberOfPeople, status]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -49,20 +61,31 @@ export function EventForm({
       setError('Event name is required.');
       return;
     }
-    if (!eventDate) {
-      setError('Event date is required.');
+    if (!eventType) {
+      setError('Event type is required.');
       return;
     }
-    if (!startTime) {
-      setError('Start time is required.');
+    if (!contactPerson.trim()) {
+      setError('Contact person is required.');
       return;
     }
-    if (endTime && endTime < startTime) {
-      setError('End time must be greater than or equal to start time.');
+    const isoDate = displayDateToIso(eventDate);
+    if (!isoDate) {
+      setError('Enter a valid date in DD/MM/YYYY format.');
       return;
     }
+    const startTime = timePartsTo24(timeHour, timeMinute, timePeriod);
     if (!Number.isInteger(people) || people <= 0) {
       setError('Number of people must be a positive whole number.');
+      return;
+    }
+    const mobile = mobileNumber.trim();
+    if (!mobile) {
+      setError('Mobile number is required.');
+      return;
+    }
+    if (!/^\+?[0-9][0-9\s-]{6,29}$/.test(mobile)) {
+      setError('Enter a valid mobile number.');
       return;
     }
 
@@ -70,12 +93,17 @@ export function EventForm({
     const payload = {
       name: name.trim(),
       description: description.trim() || null,
-      eventDate,
+      eventDate: isoDate,
       startTime,
-      endTime: endTime || null,
       numberOfPeople: people,
+      eventType: eventType || null,
+      servingType: servingType || null,
+      contactPerson: contactPerson.trim() || null,
+      mobileNumber: mobile,
       location: location.trim() || null,
       notes: notes.trim() || null,
+      donationAmount: donationAmount ? Number.parseFloat(donationAmount) : null,
+      donationGivenBy: donationGivenBy.trim() || null,
       ...(mode === 'create' ? { status } : {}),
     };
 
@@ -120,9 +148,9 @@ export function EventForm({
       <fieldset className="space-y-4">
         <legend className="text-[10px] font-bold uppercase tracking-[0.22em] text-secondary">Basic Information</legend>
         <div>
-          <label htmlFor="event-name" className="mb-1.5 block text-xs font-semibold text-ink">
+          <FieldLabel htmlFor="event-name" className="mb-1.5 block text-xs font-semibold text-ink">
             Event name *
-          </label>
+          </FieldLabel>
           <input
             id="event-name"
             type="text"
@@ -135,24 +163,45 @@ export function EventForm({
           />
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <FieldLabel htmlFor="event-type" className="mb-1.5 block text-xs font-semibold text-ink">
+            Event type <span className="text-danger">*</span>
+          </FieldLabel>
+          <select
+            id="event-type"
+            value={eventType}
+            onChange={(e) => setEventType(e.target.value)}
+            className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
+          >
+            <option value="">Select event type…</option>
+            {EVENT_TYPES.map((type) => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div>
-            <label htmlFor="event-date" className="mb-1.5 block text-xs font-semibold text-ink">
+            <FieldLabel htmlFor="event-date" className="mb-1.5 block text-xs font-semibold text-ink">
               Date *
-            </label>
+            </FieldLabel>
             <input
               id="event-date"
-              type="date"
+              type="text"
+              inputMode="numeric"
               required
+              maxLength={10}
               value={eventDate}
               onChange={(e) => setEventDate(e.target.value)}
-              className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
+              placeholder="DD/MM/YYYY"
+              className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm text-ink placeholder:text-muted outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
             />
+            <p className="mt-1.5 text-[10px] text-muted">DD/MM/YYYY (e.g. 20/11/2026).</p>
           </div>
           <div>
-            <label htmlFor="event-people" className="mb-1.5 block text-xs font-semibold text-ink">
+            <FieldLabel htmlFor="event-people" className="mb-1.5 block text-xs font-semibold text-ink">
               Number of people *
-            </label>
+            </FieldLabel>
             <input
               id="event-people"
               type="number"
@@ -165,41 +214,68 @@ export function EventForm({
               className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm text-ink placeholder:text-muted outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
             />
           </div>
+          <div>
+            <FieldLabel htmlFor="event-serving-type" className="mb-1.5 block text-xs font-semibold text-ink">
+              Type
+            </FieldLabel>
+            <select
+              id="event-serving-type"
+              value={servingType}
+              onChange={(e) => setServingType(e.target.value)}
+              className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
+            >
+              <option value="">Select…</option>
+              {SERVING_TYPES.map((type) => (
+                <option key={type} value={type}>{type}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div>
-            <label htmlFor="event-start" className="mb-1.5 block text-xs font-semibold text-ink">
+            <FieldLabel htmlFor="event-start" className="mb-1.5 block text-xs font-semibold text-ink">
               Start time *
-            </label>
-            <input
-              id="event-start"
-              type="time"
-              required
-              value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
-              className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
-            />
-            <p className="mt-1.5 text-[10px] text-muted">24-hour format (e.g. 10:00).</p>
-          </div>
-          <div>
-            <label htmlFor="event-end" className="mb-1.5 block text-xs font-semibold text-ink">
-              End time
-            </label>
-            <input
-              id="event-end"
-              type="time"
-              value={endTime}
-              onChange={(e) => setEndTime(e.target.value)}
-              className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
-            />
-            <p className="mt-1.5 text-[10px] text-muted">Must be at or after the start time.</p>
+            </FieldLabel>
+            <div className="flex gap-2">
+              <select
+                id="event-start"
+                aria-label="Hour"
+                value={timeHour}
+                onChange={(e) => setTimeHour(e.target.value)}
+                className="w-full rounded-xl border border-border-strong/70 bg-white px-2 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
+              >
+                {Array.from({ length: 12 }, (_, index) => String(index + 1)).map((hour) => (
+                  <option key={hour} value={hour}>{hour}</option>
+                ))}
+              </select>
+              <select
+                aria-label="Minute"
+                value={timeMinute}
+                onChange={(e) => setTimeMinute(e.target.value)}
+                className="w-full rounded-xl border border-border-strong/70 bg-white px-2 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
+              >
+                {Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0')).map((minute) => (
+                  <option key={minute} value={minute}>{minute}</option>
+                ))}
+              </select>
+              <select
+                aria-label="AM or PM"
+                value={timePeriod}
+                onChange={(e) => setTimePeriod(e.target.value as 'AM' | 'PM')}
+                className="w-full rounded-xl border border-border-strong/70 bg-white px-2 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
+              >
+                <option value="AM">AM</option>
+                <option value="PM">PM</option>
+              </select>
+            </div>
+            <p className="mt-1.5 text-[10px] text-muted">12-hour format with AM/PM.</p>
           </div>
           {mode === 'create' && (
             <div>
-              <label htmlFor="event-status" className="mb-1.5 block text-xs font-semibold text-ink">
+              <FieldLabel htmlFor="event-status" className="mb-1.5 block text-xs font-semibold text-ink">
                 Status
-              </label>
+              </FieldLabel>
               <select
                 id="event-status"
                 value={status}
@@ -217,11 +293,42 @@ export function EventForm({
 
       {/* Location */}
       <fieldset className="space-y-4 border-t border-border pt-4">
-        <legend className="text-[10px] font-bold uppercase tracking-[0.22em] text-secondary">Location</legend>
+        <legend className="text-[10px] font-bold uppercase tracking-[0.22em] text-secondary">Address</legend>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <FieldLabel htmlFor="event-contact" className="mb-1.5 block text-xs font-semibold text-ink">
+              Contact Person <span className="text-danger">*</span>
+            </FieldLabel>
+            <input
+              id="event-contact"
+              type="text"
+              value={contactPerson}
+              onChange={(e) => setContactPerson(e.target.value)}
+              maxLength={APP_CONSTANTS.event.contactPersonMaxLength}
+              placeholder="Primary contact at the venue"
+              className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm text-ink placeholder:text-muted outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
+            />
+          </div>
+          <div>
+            <FieldLabel htmlFor="event-mobile" className="mb-1.5 block text-xs font-semibold text-ink">
+              Mobile Number <span className="text-danger">*</span>
+            </FieldLabel>
+            <input
+              id="event-mobile"
+              type="tel"
+              required
+              value={mobileNumber}
+              onChange={(e) => setMobileNumber(e.target.value)}
+              maxLength={APP_CONSTANTS.event.mobileNumberMaxLength}
+              placeholder="e.g. +91 98765 43210"
+              className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm text-ink placeholder:text-muted outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
+            />
+          </div>
+        </div>
         <div>
-          <label htmlFor="event-location" className="mb-1.5 block text-xs font-semibold text-ink">
-            Location
-          </label>
+          <FieldLabel htmlFor="event-location" className="mb-1.5 block text-xs font-semibold text-ink">
+            Address
+          </FieldLabel>
           <input
             id="event-location"
             type="text"
@@ -232,9 +339,9 @@ export function EventForm({
           />
         </div>
         <div>
-          <label htmlFor="event-notes" className="mb-1.5 block text-xs font-semibold text-ink">
+          <FieldLabel htmlFor="event-notes" className="mb-1.5 block text-xs font-semibold text-ink">
             Notes
-          </label>
+          </FieldLabel>
           <textarea
             id="event-notes"
             rows={2}
@@ -250,9 +357,9 @@ export function EventForm({
       <fieldset className="space-y-4 border-t border-border pt-4">
         <legend className="text-[10px] font-bold uppercase tracking-[0.22em] text-secondary">Description</legend>
         <div>
-          <label htmlFor="event-description" className="mb-1.5 block text-xs font-semibold text-ink">
+          <FieldLabel htmlFor="event-description" className="mb-1.5 block text-xs font-semibold text-ink">
             Description
-          </label>
+          </FieldLabel>
           <textarea
             id="event-description"
             rows={3}
@@ -263,6 +370,45 @@ export function EventForm({
           />
         </div>
       </fieldset>
+
+      {/* Donation - ADMIN only: optional donation amount + donor */}
+      {user?.role === 'ADMIN' && (
+      <fieldset className="space-y-4 border-t border-border pt-4">
+        <legend className="text-[10px] font-bold uppercase tracking-[0.22em] text-secondary">Donation</legend>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <FieldLabel htmlFor="event-donation-amount" className="mb-1.5 block text-xs font-semibold text-ink">
+              ₹ Donation amount
+            </FieldLabel>
+            <input
+              id="event-donation-amount"
+              type="number"
+              min={0}
+              step="0.01"
+              value={donationAmount}
+              onChange={(e) => setDonationAmount(e.target.value)}
+              placeholder="0.00"
+              className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm text-ink placeholder:text-muted outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
+            />
+            <p className="mt-1.5 text-[10px] text-muted">Optional monetary donation amount.</p>
+          </div>
+          <div>
+            <FieldLabel htmlFor="event-donation-given-by" className="mb-1.5 block text-xs font-semibold text-ink">
+              Donation given by
+            </FieldLabel>
+            <input
+              id="event-donation-given-by"
+              type="text"
+              value={donationGivenBy}
+              onChange={(e) => setDonationGivenBy(e.target.value)}
+              placeholder="e.g. Devotee Name"
+              className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm text-ink placeholder:text-muted outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
+            />
+            <p className="mt-1.5 text-[10px] text-muted">Name of the person or organization that gave the donation.</p>
+          </div>
+        </div>
+      </fieldset>
+      )}
 
       <div className="flex items-center justify-end gap-3 border-t border-border pt-4">
         <button

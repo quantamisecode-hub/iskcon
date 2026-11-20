@@ -66,7 +66,7 @@ async function createFoodItem(stock: number): Promise<{ foodItemId: string }> {
 
 async function getStock(foodItemId: string): Promise<number> {
   const row = await prisma.inventory.findUnique({ where: { foodItemId } });
-  return row?.currentQuantity ?? -1;
+  return Number(row?.currentQuantity ?? -1);
 }
 
 async function ledgerSum(foodItemId: string): Promise<number> {
@@ -82,6 +82,8 @@ async function ledgerCount(foodItemId: string): Promise<number> {
 
 afterAll(async () => {
   await withDeadlockRetry(async () => {
+    await prisma.stockAllocation.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
+    await prisma.stockLot.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
     await prisma.inventoryTransaction.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
     await prisma.inventory.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
     await prisma.foodItem.deleteMany({ where: { id: { in: createdFoodItemIds } } });
@@ -495,7 +497,7 @@ describe('TEST 12 — Repeat concurrency test ×100 rounds', () => {
             .send({ quantity: 10 }),
         ),
       );
-      const successfulIns = ins.filter((r) => r.status === 'fulfilled').length;
+      const successfulIns = ins.filter((r) => r.status === 'fulfilled' && (r.value as request.Response).status === 200).length;
 
       // 15 parallel −8 stock-outs
       const outs = await Promise.allSettled(
@@ -506,7 +508,7 @@ describe('TEST 12 — Repeat concurrency test ×100 rounds', () => {
             .send({ quantity: 8, reason: `Repeat round ${round}` }),
         ),
       );
-      const successfulOuts = outs.filter((r) => r.status === 'fulfilled').length;
+      const successfulOuts = outs.filter((r) => r.status === 'fulfilled' && (r.value as request.Response).status === 200).length;
 
       const stock = await getStock(foodItemId);
       const count = await ledgerCount(foodItemId);
@@ -523,9 +525,11 @@ describe('TEST 12 — Repeat concurrency test ×100 rounds', () => {
         anomalies++;
         console.log(`ROUND ${round}: stock=${stock} != 100+signedLedgerSum=${100 + signedSum}`);
       }
-      if (count !== successfulIns + successfulOuts) {
+      // A FIFO stock-out writes one ledger row PER consumed lot, so the row
+      // count can exceed the number of successful stock-out requests.
+      if (count < successfulIns + successfulOuts) {
         anomalies++;
-        console.log(`ROUND ${round}: ledgerRows=${count} expected=${successfulIns + successfulOuts}`);
+        console.log(`ROUND ${round}: ledgerRows=${count} expected>=${successfulIns + successfulOuts}`);
       }
       if (stock < 0) {
         anomalies++;
@@ -533,7 +537,9 @@ describe('TEST 12 — Repeat concurrency test ×100 rounds', () => {
       }
 
       // Clean up for next round
+      await prisma.stockAllocation.deleteMany({ where: { foodItemId } });
       await prisma.inventoryTransaction.deleteMany({ where: { foodItemId } });
+      await prisma.stockLot.deleteMany({ where: { foodItemId } });
       await prisma.inventory.deleteMany({ where: { foodItemId } });
       await prisma.foodItem.deleteMany({ where: { id: foodItemId } });
     }

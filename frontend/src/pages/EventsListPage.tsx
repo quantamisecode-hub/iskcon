@@ -175,8 +175,7 @@ export function EventsListPage() {
                   </div>
                   <h2 className="mt-2 text-lg font-bold text-ink">{event.name}</h2>
                   <p className="mt-1 text-sm text-secondary">
-                    {formatDate(event.eventDate)} · {event.startTime}
-                    {event.endTime ? `–${event.endTime}` : ''} · {event.numberOfPeople} people
+                    {formatDate(event.eventDate)} · {event.startTime} · {event.numberOfPeople} people
                   </p>
                   <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-secondary">
                     <span>{event.dishCount} dishes</span>
@@ -211,7 +210,7 @@ export function EventsListPage() {
                     <td className="px-4 py-3 font-semibold text-ink">{event.name}</td>
                     <td className="px-4 py-3 text-secondary">{formatDate(event.eventDate)}</td>
                     <td className="px-4 py-3 text-secondary">
-                      {event.startTime}{event.endTime ? `–${event.endTime}` : ''}
+                      {event.startTime}
                     </td>
                     <td className="px-4 py-3 text-right text-secondary">{event.numberOfPeople}</td>
                     <td className="px-4 py-3 text-right text-secondary">{event.dishCount}</td>

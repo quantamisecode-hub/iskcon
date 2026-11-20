@@ -1,2 +1,2 @@
 -- AlterTable
-ALTER TABLE `eventmaterial` ADD COLUMN `isDraft` BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE `EventMaterial` ADD COLUMN `isDraft` BOOLEAN NOT NULL DEFAULT false;

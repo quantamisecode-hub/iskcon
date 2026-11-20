@@ -5,6 +5,7 @@ import { userRouter } from './user.routes.js';
 import { assignmentRouter } from './assignment.routes.js';
 import { categoryRouter } from './category.routes.js';
 import { unitRouter } from './unit.routes.js';
+import { vendorRouter } from './vendor.routes.js';
 import { foodItemRouter } from './foodItem.routes.js';
 import { eventRouter, eventMaterialRouter } from './event.routes.js';
 import { dishRouter } from './dish.routes.js';
@@ -14,6 +15,7 @@ import { ledgerRouter } from './ledger.routes.js';
 import { materialRequestRouter } from './materialRequest.routes.js';
 import { materialReturnRouter } from './materialReturn.routes.js';
 import { notificationRouter } from './notification.routes.js';
+import { stockLotRouter, fifoRouter, inventoryRouter } from './stockLot.routes.js';
 
 /**
  * API v1 route registry.
@@ -26,6 +28,7 @@ apiV1Router.use('/users', userRouter);
 apiV1Router.use('/assignments', assignmentRouter);
 apiV1Router.use('/categories', categoryRouter);
 apiV1Router.use('/units', unitRouter);
+apiV1Router.use('/vendors', vendorRouter);
 apiV1Router.use('/food-items', foodItemRouter);
 apiV1Router.use('/events', eventRouter);
 apiV1Router.use('/event-dishes', eventMaterialRouter);
@@ -36,3 +39,7 @@ apiV1Router.use('/ledger', ledgerRouter);
 apiV1Router.use('/material-requests', materialRequestRouter);
 apiV1Router.use('/returns', materialReturnRouter);
 apiV1Router.use('/notifications', notificationRouter);
+// FIFO lot-based inventory read APIs (all ADMIN-only at the router layer).
+apiV1Router.use('/stock-lots', stockLotRouter);
+apiV1Router.use('/fifo', fifoRouter);
+apiV1Router.use('/inventory', inventoryRouter);

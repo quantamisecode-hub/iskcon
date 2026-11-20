@@ -1,12 +1,55 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { fetchFoodItemsList, fetchStockSummary, stockIn, stockOut, type FoodItemRow, type StockSummary } from '../features/inventory/api/inventory.api';
+import {
+  fetchFifoPreview,
+  fetchFoodItemsList,
+  fetchInventoryValuation,
+  fetchStockLots,
+  fetchStockSummary,
+  fetchVendors,
+  formatINR,
+  stockIn,
+  stockOut,
+  type FifoPreview,
+  type FoodItemRow,
+  type StockSummary,
+  type VendorRow,
+} from '../features/inventory/api/inventory.api';
 import { fetchEvents } from '../features/events/api/events.api';
 import { Modal } from '../components/ui/Modal';
 import { Skeleton } from '../components/ui/Skeleton';
 import { ArrowRightIcon, TruckIcon } from '../components/ui/icons';
+import { FieldLabel } from '../components/ui/FieldLabel';
+import { useAuth } from '../hooks/useAuth';
+import { APP_CONSTANTS } from '../constants/appConstants';
 
 const PAGE_SIZE = 20;
+const FIFO_DEBOUNCE_MS = 300;
+const QUANTITY_STEP = 10 ** -APP_CONSTANTS.quantityPrecision;
+
+/** Local calendar date (YYYY-MM-DD) — toISOString() alone would use UTC. */
+function todayIso(): string {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+}
+
+/** Accepts fractional quantities (kg/litres), rounded to the central precision. */
+function parseQuantity(raw: string): number | null {
+  if (raw.trim() === '') return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const factor = 10 ** APP_CONSTANTS.quantityPrecision;
+  return Math.round(value * factor) / factor;
+}
+
+/** Display-only estimate; the backend always recalculates the lot's total cost. */
+function stockInTotalPreview(qtyRaw: string, costRaw: string): number | null {
+  const qty = parseQuantity(qtyRaw);
+  if (costRaw.trim() === '' || qty === null) return null;
+  const cost = Number(costRaw);
+  if (!Number.isFinite(cost) || cost < 0) return null;
+  return qty * cost;
+}
 
 type StockStatus = 'OUT' | 'CRITICAL' | 'LOW' | 'NORMAL';
 
@@ -19,6 +62,8 @@ function statusOf(item: { inventory?: { currentQuantity: number } | null; minimu
 }
 
 export function InventoryPage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -30,6 +75,13 @@ export function InventoryPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [stockInItem, setStockInItem] = useState<FoodItemRow | null>(null);
   const [stockInQty, setStockInQty] = useState('');
+  const [stockInVendorId, setStockInVendorId] = useState('');
+  const [vendors, setVendors] = useState<VendorRow[]>([]);
+  const [stockInPurchaseDate, setStockInPurchaseDate] = useState('');
+  const [stockInReceivedDate, setStockInReceivedDate] = useState(todayIso);
+  const [stockInUnitCost, setStockInUnitCost] = useState('');
+  const [stockInReference, setStockInReference] = useState('');
+  const [stockInNotes, setStockInNotes] = useState('');
   const [stockInError, setStockInError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [showStockIn, setShowStockIn] = useState(searchParams.get('stockIn') === '1');
@@ -46,6 +98,14 @@ export function InventoryPage() {
   const [pickerItems, setPickerItems] = useState<FoodItemRow[]>([]);
   const [summaryError, setSummaryError] = useState<string | null>(null);
 
+  // ADMIN-only FIFO preview + valuation (never rendered for Executors).
+  const [fifoPreview, setFifoPreview] = useState<FifoPreview | null>(null);
+  const [fifoAvailableByLot, setFifoAvailableByLot] = useState<Record<string, number>>({});
+  const [fifoLoading, setFifoLoading] = useState(false);
+  const [fifoError, setFifoError] = useState<string | null>(null);
+  const [valuationTotal, setValuationTotal] = useState<number | null>(null);
+  const [activeLots, setActiveLots] = useState<number | null>(null);
+
   // Picker rows cover the full catalogue (not just the visible page).
   useEffect(() => {
     fetchFoodItemsList({ pageSize: 100 })
@@ -53,10 +113,29 @@ export function InventoryPage() {
       .catch(() => setPickerItems([]));
   }, []);
 
+  // Active vendors power the optional Vendor dropdown in the Stock In modal.
+  // A failed lookup simply leaves the dropdown on "None" — Stock In still works.
+  useEffect(() => {
+    fetchVendors({ isActive: 'true', pageSize: 100 })
+      .then((r) => setVendors(r.vendors))
+      .catch(() => setVendors([]));
+  }, []);
+
   // Open Stock In / Stock Out when their deep-link appears (e.g. from the sidebar),
   // even if the page is already mounted.
   useEffect(() => {
-    if (searchParams.get('stockIn') === '1') setShowStockIn(true);
+    if (searchParams.get('stockIn') === '1') {
+      setStockInItem(null);
+      setStockInQty('');
+      setStockInVendorId('');
+      setStockInPurchaseDate('');
+      setStockInReceivedDate(todayIso());
+      setStockInUnitCost('');
+      setStockInReference('');
+      setStockInNotes('');
+      setStockInError(null);
+      setShowStockIn(true);
+    }
     if (searchParams.get('stockOut') === '1') setShowStockOut(true);
   }, [searchParams]);
 
@@ -97,6 +176,66 @@ export function InventoryPage() {
     fetchStockSummary().then(setSummary).catch(() => { setSummary(null); setSummaryError('Could not load stock summary — KPI cards show unavailable totals.'); });
   }, []);
 
+  // Portfolio-level valuation + count of lots that still hold stock (ADMIN only).
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    Promise.all([
+      fetchInventoryValuation(),
+      fetchStockLots({ status: 'AVAILABLE', pageSize: 1 }),
+      fetchStockLots({ status: 'PARTIALLY_CONSUMED', pageSize: 1 }),
+    ])
+      .then(([valuation, available, partial]) => {
+        if (cancelled) return;
+        setValuationTotal(valuation.totalValue);
+        setActiveLots(available.total + partial.total);
+      })
+      .catch(() => {
+        if (!cancelled) { setValuationTotal(null); setActiveLots(null); }
+      });
+    return () => { cancelled = true; };
+  }, [isAdmin]);
+
+  // Debounced FIFO calculation for the Stock Out modal. The server is the
+  // source of truth; this is display-only and is recalculated on confirm.
+  useEffect(() => {
+    if (!isAdmin || !showStockOut) return;
+    const qty = parseQuantity(stockOutQty);
+    if (!stockOutItem || qty === null) {
+      setFifoPreview(null);
+      setFifoAvailableByLot({});
+      setFifoError(null);
+      setFifoLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setFifoLoading(true);
+    const timer = window.setTimeout(() => {
+      Promise.all([
+        fetchFifoPreview(stockOutItem.id, qty),
+        fetchStockLots({ foodItemId: stockOutItem.id, pageSize: 100 }).catch(() => null),
+      ])
+        .then(([preview, lots]) => {
+          if (cancelled) return;
+          setFifoPreview(preview);
+          const remaining: Record<string, number> = {};
+          for (const lot of lots?.lots ?? []) remaining[lot.lotNumber] = lot.quantityRemaining;
+          setFifoAvailableByLot(remaining);
+          setFifoError(null);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setFifoPreview(null);
+          setFifoError('Could not load the FIFO preview. You can still record stock out.');
+        })
+        .finally(() => { if (!cancelled) setFifoLoading(false); });
+    }, FIFO_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isAdmin, showStockOut, stockOutItem, stockOutQty]);
+
   const totals = useMemo(() => {
     return {
       totalItems: summary?.totalItems ?? total,
@@ -110,13 +249,33 @@ export function InventoryPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  const resetStockInFields = () => {
+    setStockInVendorId('');
+    setStockInPurchaseDate('');
+    setStockInReceivedDate(todayIso());
+    setStockInUnitCost('');
+    setStockInReference('');
+    setStockInNotes('');
+    setStockInError(null);
+  };
+
   const closeStockIn = () => {
     setShowStockIn(false);
+    resetStockInFields();
     if (searchParams.has('stockIn')) setSearchParams({}, { replace: true });
+  };
+
+  const openStockInFor = (item: FoodItemRow | null) => {
+    setStockInItem(item);
+    setStockInQty('');
+    resetStockInFields();
+    setShowStockIn(true);
   };
 
   const closeStockOut = () => {
     setShowStockOut(false);
+    setFifoPreview(null);
+    setFifoError(null);
     if (searchParams.has('stockOut')) setSearchParams({}, { replace: true });
   };
 
@@ -126,6 +285,8 @@ export function InventoryPage() {
     setStockOutReason('');
     setStockOutEventId('');
     setStockOutError(null);
+    setFifoPreview(null);
+    setFifoError(null);
     setShowStockOut(true);
   };
 
@@ -137,9 +298,13 @@ export function InventoryPage() {
       setStockOutError('Choose a food item first.');
       return;
     }
-    const qty = Number.parseInt(stockOutQty, 10);
-    if (!Number.isInteger(qty) || qty <= 0) {
-      setStockOutError('Quantity must be a positive whole number.');
+    const qty = parseQuantity(stockOutQty);
+    if (qty === null) {
+      setStockOutError(`Quantity must be a positive number (up to ${APP_CONSTANTS.quantityPrecision} decimals).`);
+      return;
+    }
+    if (fifoPreview && !fifoPreview.sufficient) {
+      setStockOutError('Not enough stock is available in the FIFO lots to cover this issue.');
       return;
     }
     const available = item.inventory?.currentQuantity ?? 0;
@@ -166,6 +331,8 @@ export function InventoryPage() {
       setStockOutQty('');
       setStockOutReason('');
       setStockOutEventId('');
+      setFifoPreview(null);
+      setFifoError(null);
       if (searchParams.has('stockOut')) setSearchParams({}, { replace: true });
       fetchFoodItemsList(filters).then((r) => { setItems(r.foodItems); setTotal(r.total); }).catch(() => undefined);
     } catch (err) {
@@ -178,22 +345,37 @@ export function InventoryPage() {
 
   const handleStockIn = async () => {
     setStockInError(null);
-    const qty = Number.parseInt(stockInQty, 10);
     if (!stockInItem) {
       setStockInError('Choose a food item first.');
       return;
     }
-    if (!Number.isInteger(qty) || qty <= 0) {
-      setStockInError('Quantity must be a positive whole number.');
+    const qty = parseQuantity(stockInQty);
+    if (qty === null) {
+      setStockInError(`Quantity must be a positive number (up to ${APP_CONSTANTS.quantityPrecision} decimals).`);
+      return;
+    }
+    const unitCost = stockInUnitCost.trim() === '' ? undefined : Number(stockInUnitCost);
+    if (unitCost !== undefined && (!Number.isFinite(unitCost) || unitCost < 0)) {
+      setStockInError('Unit cost must be zero or a positive number.');
       return;
     }
     setIsBusy(true);
     try {
-      await stockIn(stockInItem.id, qty);
-      setNotice(`Stock In recorded for ${stockInItem.name} (+${qty} ${stockInItem.unit.symbol}).`);
+      await stockIn(stockInItem.id, qty, stockInVendorId || null, {
+        purchaseDate: stockInPurchaseDate || undefined,
+        receivedDate: stockInReceivedDate || undefined,
+        unitCost,
+        referenceNumber: stockInReference.trim() || undefined,
+        notes: stockInNotes.trim() || undefined,
+      });
+      const previewTotal = stockInTotalPreview(stockInQty, stockInUnitCost);
+      setNotice(
+        `Stock In recorded for ${stockInItem.name} (+${qty} ${stockInItem.unit.symbol}). New lot created${previewTotal === null ? '' : ` · value ${formatINR(previewTotal)}`}.`,
+      );
       setShowStockIn(false);
       setStockInItem(null);
       setStockInQty('');
+      resetStockInFields();
       if (searchParams.has('stockIn')) setSearchParams({}, { replace: true });
       fetchFoodItemsList(filters).then((r) => { setItems(r.foodItems); setTotal(r.total); }).catch(() => undefined);
     } catch (err) {
@@ -218,7 +400,7 @@ export function InventoryPage() {
           <Link to="/inventory/units" className="rounded-xl border border-border-strong/60 px-4 py-2.5 text-xs font-semibold text-ink transition hover:border-primary hover:text-primary">Units →</Link>
           <Link to="/inventory/ledger" className="rounded-xl border border-border-strong/60 px-4 py-2.5 text-xs font-semibold text-ink transition hover:border-primary hover:text-primary">Ledger →</Link>
           <button type="button" onClick={() => { setStockOutItem(null); setStockOutQty(''); setStockOutReason(''); setStockOutEventId(''); setStockOutError(null); setShowStockOut(true); }} className="inline-flex items-center gap-1.5 rounded-xl border border-danger/40 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-danger transition hover:bg-danger-soft"><TruckIcon className="h-4 w-4" />− Stock Out</button>
-          <button type="button" onClick={() => setShowStockIn(true)} className="rounded-xl bg-primary px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-primary-foreground shadow-lift transition hover:bg-primary-dark">+ Stock In</button>
+          <button type="button" onClick={() => openStockInFor(null)} className="rounded-xl bg-primary px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-primary-foreground shadow-lift transition hover:bg-primary-dark">+ Stock In</button>
         </div>
       </div>
 
@@ -235,6 +417,19 @@ export function InventoryPage() {
         <SummaryTile label="Out of Stock" value={totals.out} tone="text-red-800" />
         <SummaryTile label="Healthy" value={totals.healthy} tone="text-emerald-700" />
       </div>
+
+      {isAdmin && (
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-primary/20 bg-primary/5 px-5 py-3.5">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-secondary">Total Stock Value</p>
+            <p className="mt-1 text-lg font-bold tabular-nums text-ink">{valuationTotal === null ? '—' : formatINR(valuationTotal)}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-secondary">Active Lots</p>
+            <p className="mt-1 text-lg font-bold tabular-nums text-ink">{activeLots ?? '—'}</p>
+          </div>
+        </div>
+      )}
 
       <input
         type="search"
@@ -289,7 +484,7 @@ export function InventoryPage() {
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <Link to={`/inventory/food-items/${item.id}`} className="rounded-lg border border-border-strong/60 px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-primary hover:text-primary">View</Link>
-                          <button type="button" onClick={() => { setStockInItem(item); setStockInQty(''); setStockInError(null); setShowStockIn(true); }} className="rounded-lg border border-border-strong/60 px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-primary hover:text-primary">+ Stock In</button>
+                          <button type="button" onClick={() => openStockInFor(item)} className="rounded-lg border border-border-strong/60 px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-primary hover:text-primary">+ Stock In</button>
                           {qty > 0 && (
                             <button type="button" onClick={() => openStockOutFor(item)} className="rounded-lg border border-danger/40 px-3 py-1.5 text-xs font-semibold text-danger transition hover:bg-danger-soft">− Out</button>
                           )}
@@ -313,10 +508,10 @@ export function InventoryPage() {
       )}
 
       {showStockIn && (
-        <Modal title="Stock In" onClose={closeStockIn} maxWidthClass="max-w-md">
+        <Modal title="Stock In" onClose={closeStockIn} maxWidthClass="max-w-lg">
           <div className="space-y-4">
             <div>
-              <label htmlFor="stock-item" className="mb-1.5 block text-xs font-semibold text-ink">Food Item</label>
+              <FieldLabel htmlFor="stock-item" className="mb-1.5 block text-xs font-semibold text-ink">Food Item</FieldLabel>
               <select id="stock-item" value={stockInItem?.id ?? ''} onChange={(e) => setStockInItem(pickerItems.find((item) => item.id === e.target.value) ?? items.find((item) => item.id === e.target.value) ?? null)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25">
                 <option value="">Select food item…</option>
                 {(pickerItems.length ? pickerItems : items).map((item) => (
@@ -325,8 +520,48 @@ export function InventoryPage() {
               </select>
             </div>
             <div>
-              <label htmlFor="stock-qty" className="mb-1.5 block text-xs font-semibold text-ink">Quantity received *</label>
-              <input id="stock-qty" type="number" min={1} step={1} value={stockInQty} onChange={(e) => setStockInQty(e.target.value)} autoFocus placeholder="e.g. 50" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
+              <FieldLabel htmlFor="stock-vendor" className="mb-1.5 block text-xs font-semibold text-ink">Vendor <span className="font-normal text-muted">(optional)</span></FieldLabel>
+              <select id="stock-vendor" value={stockInVendorId} onChange={(e) => setStockInVendorId(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25">
+                <option value="">None</option>
+                {vendors.map((vendor) => (
+                  <option key={vendor.id} value={vendor.id}>{vendor.name}</option>
+                ))}
+              </select>
+              <p className="mt-1.5 text-[10px] leading-snug text-muted">Credit this delivery to a vendor — it will appear on the ledger entry.</p>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <FieldLabel htmlFor="stock-purchase-date" className="mb-1.5 block text-xs font-semibold text-ink">Purchase Date <span className="font-normal text-muted">(optional)</span></FieldLabel>
+                <input id="stock-purchase-date" type="date" value={stockInPurchaseDate} onChange={(e) => setStockInPurchaseDate(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
+              </div>
+              <div>
+                <FieldLabel htmlFor="stock-received-date" className="mb-1.5 block text-xs font-semibold text-ink">Received Date *</FieldLabel>
+                <input id="stock-received-date" type="date" value={stockInReceivedDate} onChange={(e) => setStockInReceivedDate(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <FieldLabel htmlFor="stock-qty" className="mb-1.5 block text-xs font-semibold text-ink">Quantity received *</FieldLabel>
+                <input id="stock-qty" type="number" min={QUANTITY_STEP} step={QUANTITY_STEP} value={stockInQty} onChange={(e) => setStockInQty(e.target.value)} placeholder="e.g. 50" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
+              </div>
+              <div>
+                <FieldLabel htmlFor="stock-unit-cost" className="mb-1.5 block text-xs font-semibold text-ink">Unit Cost <span className="font-normal text-muted">(optional)</span></FieldLabel>
+                <input id="stock-unit-cost" type="number" min={0} step={0.01} value={stockInUnitCost} onChange={(e) => setStockInUnitCost(e.target.value)} placeholder="e.g. 120.50" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
+              </div>
+            </div>
+            {isAdmin && (
+              <div className="flex items-baseline justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-secondary">Total Cost (estimated)</span>
+                <span className="text-base font-bold tabular-nums text-ink">{formatINR(stockInTotalPreview(stockInQty, stockInUnitCost))}</span>
+              </div>
+            )}
+            <div>
+              <FieldLabel htmlFor="stock-reference" className="mb-1.5 block text-xs font-semibold text-ink">Reference / Invoice Number <span className="font-normal text-muted">(optional)</span></FieldLabel>
+              <input id="stock-reference" type="text" value={stockInReference} onChange={(e) => setStockInReference(e.target.value)} maxLength={100} placeholder="e.g. INV-2026-0142" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
+            </div>
+            <div>
+              <FieldLabel htmlFor="stock-notes" className="mb-1.5 block text-xs font-semibold text-ink">Notes <span className="font-normal text-muted">(optional)</span></FieldLabel>
+              <textarea id="stock-notes" rows={2} value={stockInNotes} onChange={(e) => setStockInNotes(e.target.value)} maxLength={500} placeholder="Delivery condition, batch remarks…" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
             </div>
             {stockInError && <p role="alert" className="text-xs font-semibold text-danger">{stockInError}</p>}
             <div className="flex items-center justify-end gap-3">
@@ -338,10 +573,10 @@ export function InventoryPage() {
       )}
 
       {showStockOut && (
-        <Modal title="Stock Out" onClose={closeStockOut} maxWidthClass="max-w-md">
+        <Modal title="Stock Out" onClose={closeStockOut} maxWidthClass="max-w-2xl">
           <div className="space-y-4">
             <div>
-              <label htmlFor="stock-out-item" className="mb-1.5 block text-xs font-semibold text-ink">Food Item</label>
+              <FieldLabel htmlFor="stock-out-item" className="mb-1.5 block text-xs font-semibold text-ink">Food Item</FieldLabel>
               <select id="stock-out-item" value={stockOutItem?.id ?? ''} onChange={(e) => setStockOutItem(pickerItems.find((item) => item.id === e.target.value) ?? items.find((item) => item.id === e.target.value) ?? null)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25">
                 <option value="">Select food item…</option>
                 {(pickerItems.length ? pickerItems : items).map((item) => (
@@ -350,18 +585,18 @@ export function InventoryPage() {
               </select>
             </div>
             <div>
-              <label htmlFor="stock-out-qty" className="mb-1.5 block text-xs font-semibold text-ink">Quantity to issue *</label>
-              <input id="stock-out-qty" type="number" min={1} step={1} value={stockOutQty} onChange={(e) => setStockOutQty(e.target.value)} autoFocus placeholder="e.g. 50" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
+              <FieldLabel htmlFor="stock-out-qty" className="mb-1.5 block text-xs font-semibold text-ink">Quantity to issue *</FieldLabel>
+              <input id="stock-out-qty" type="number" min={QUANTITY_STEP} step={QUANTITY_STEP} value={stockOutQty} onChange={(e) => setStockOutQty(e.target.value)} autoFocus placeholder="e.g. 50" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
               {stockOutItem && (
                 <p className="mt-1.5 text-[10px] leading-snug text-muted">Max available: <span className="font-semibold text-ink">{stockOutItem.inventory?.currentQuantity ?? 0} {stockOutItem.unit.symbol}</span></p>
               )}
             </div>
             <div>
-              <label htmlFor="stock-out-reason" className="mb-1.5 block text-xs font-semibold text-ink">Reason *</label>
+              <FieldLabel htmlFor="stock-out-reason" className="mb-1.5 block text-xs font-semibold text-ink">Reason *</FieldLabel>
               <input id="stock-out-reason" type="text" value={stockOutReason} onChange={(e) => setStockOutReason(e.target.value)} placeholder="e.g. Issued to event, Used in kitchen, Damaged" maxLength={500} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
             </div>
             <div>
-              <label htmlFor="stock-out-event" className="mb-1.5 block text-xs font-semibold text-ink">Issue to event <span className="font-normal text-muted">(optional)</span></label>
+              <FieldLabel htmlFor="stock-out-event" className="mb-1.5 block text-xs font-semibold text-ink">Issue to event <span className="font-normal text-muted">(optional)</span></FieldLabel>
               <select id="stock-out-event" value={stockOutEventId} onChange={(e) => setStockOutEventId(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25">
                 <option value="">No event linked</option>
                 {recentEvents.map((event) => (
@@ -370,10 +605,76 @@ export function InventoryPage() {
               </select>
               <p className="mt-1.5 text-[10px] leading-snug text-muted">Stock Out writes a ledger row and audit entry. This is a real stock movement — it cannot be undone.</p>
             </div>
+            {isAdmin && (
+              <section className="rounded-xl border border-border bg-background/60 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-secondary">FIFO Allocation</h3>
+                  {fifoLoading && <span className="text-[10px] font-semibold text-primary">Calculating…</span>}
+                </div>
+                {fifoError ? (
+                  <p role="status" className="mt-2 text-[11px] text-amber-800">{fifoError}</p>
+                ) : fifoPreview && fifoPreview.allocations.length > 0 ? (
+                  <>
+                    <div className="mt-2 overflow-x-auto rounded-lg border border-border bg-card">
+                      <table className="w-full text-[11px]">
+                        <thead>
+                          <tr className="border-b border-border text-left text-[9px] font-bold uppercase tracking-wider text-secondary">
+                            <th className="px-2 py-2">Lot</th>
+                            <th className="px-2 py-2">Vendor</th>
+                            <th className="px-2 py-2">Received</th>
+                            <th className="px-2 py-2 text-right">Available</th>
+                            <th className="px-2 py-2 text-right">Rate</th>
+                            <th className="px-2 py-2 text-right">To Issue</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {fifoPreview.allocations.map((allocation, index) => (
+                            <tr key={`${allocation.lotNumber}-${index}`} className="border-b border-border/60 last:border-0">
+                              <td className="px-2 py-2 font-mono font-semibold text-ink">{allocation.lotNumber}</td>
+                              <td className="px-2 py-2 text-secondary">{allocation.vendorName ?? '—'}</td>
+                              <td className="px-2 py-2 tabular-nums text-secondary">{allocation.receivedDate}</td>
+                              <td className="px-2 py-2 text-right tabular-nums text-secondary">{fifoAvailableByLot[allocation.lotNumber] ?? '—'}</td>
+                              <td className="px-2 py-2 text-right tabular-nums text-secondary">{formatINR(allocation.unitCost)}</td>
+                              <td className="px-2 py-2 text-right font-bold tabular-nums text-ink">{allocation.quantityAllocated}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <dl className="mt-2 grid grid-cols-3 gap-2 text-[11px]">
+                      <div>
+                        <dt className="text-[9px] font-bold uppercase tracking-wider text-secondary">Requested Qty</dt>
+                        <dd className="mt-0.5 font-bold tabular-nums text-ink">{fifoPreview.requestedQuantity}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-[9px] font-bold uppercase tracking-wider text-secondary">FIFO Cost</dt>
+                        <dd className="mt-0.5 font-bold tabular-nums text-ink">{formatINR(fifoPreview.totalCost)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-[9px] font-bold uppercase tracking-wider text-secondary">Average Cost</dt>
+                        <dd className="mt-0.5 font-bold tabular-nums text-ink">{formatINR(fifoPreview.averageCost)}</dd>
+                      </div>
+                    </dl>
+                    {!fifoPreview.sufficient && (
+                      <p role="alert" className="mt-2 text-[11px] font-bold text-danger">
+                        Insufficient stock — only {fifoPreview.availableQuantity} available in FIFO lots.
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="mt-2 text-[11px] text-secondary">
+                    {fifoLoading ? 'Loading FIFO allocation…' : 'Choose an item and enter a quantity to preview the FIFO allocation.'}
+                  </p>
+                )}
+                <p className="mt-2 border-t border-border/60 pt-2 text-[10px] leading-snug text-muted">
+                  The system will issue the oldest available stock first. The preview is recalculated when you confirm.
+                </p>
+              </section>
+            )}
             {stockOutError && <p role="alert" className="text-xs font-semibold text-danger">{stockOutError}</p>}
             <div className="flex items-center justify-end gap-3">
               <button type="button" onClick={closeStockOut} className="rounded-xl border border-border-strong/60 px-4 py-2.5 text-sm font-semibold text-ink hover:bg-background">Cancel</button>
-              <button type="button" disabled={isStockOutBusy} onClick={() => void handleStockOut()} className="inline-flex items-center gap-2 rounded-xl bg-danger px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-800 disabled:opacity-70">
+              <button type="button" disabled={isStockOutBusy || (isAdmin && fifoPreview?.sufficient === false)} onClick={() => void handleStockOut()} className="inline-flex items-center gap-2 rounded-xl bg-danger px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-70">
                 <TruckIcon className="h-4 w-4" />
                 {isStockOutBusy ? 'Issuing…' : 'Record Stock Out'}
               </button>

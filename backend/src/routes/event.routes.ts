@@ -13,6 +13,7 @@ import {
   createEventDishSchema,
   createEventMaterialSchema,
   createEventSchema,
+  dispatchEventSchema,
   eventDishMaterialParamsSchema,
   eventDishParamsSchema,
   eventDishesMaterialParamsSchema,
@@ -44,8 +45,14 @@ eventRouter.patch('/:id', anyRole, validateParams(eventIdParamsSchema), validate
 eventRouter.patch('/:id/status', anyRole, validateParams(eventIdParamsSchema), validateBody(changeEventStatusSchema), eventController.changeStatus);
 // Phase 7 extension: cancellation with a mandatory reason (ADMIN only — service enforces).
 eventRouter.post('/:id/cancel', adminOnly, validateParams(eventIdParamsSchema), validateBody(cancelEventSchema), eventController.cancel);
+// Ready for Dispatch: record dispatch details (ADMIN + EXECUTOR).
+eventRouter.post('/:id/dispatch', anyRole, validateParams(eventIdParamsSchema), validateBody(dispatchEventSchema), eventController.dispatch);
+// Verifier dropdown options: active executors in the event's admin scope (any authenticated role).
+eventRouter.get('/:id/dispatch/verifiers', anyRole, validateParams(eventIdParamsSchema), eventController.dispatchVerifiers);
 // Phase 7 extension: computed §39/§40 material summary (never stored).
 eventRouter.get('/:id/material-summary', anyRole, validateParams(eventIdParamsSchema), eventController.materialSummary);
+// UNDO the last lifecycle move (READY -> PLANNING, COMPLETED -> READY).
+eventRouter.post('/:id/undo', anyRole, validateParams(eventIdParamsSchema), eventController.undo);
 // Phase 7 extension: additional material request — EXECUTOR creates (service enforces).
 eventRouter.post(
   '/:eventId/material-requests',

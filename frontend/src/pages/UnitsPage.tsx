@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { createUnit, fetchUnitsList, updateUnit, type UnitRow } from '../features/inventory/api/inventory.api';
 import { Modal } from '../components/ui/Modal';
 import { Skeleton } from '../components/ui/Skeleton';
+import { FieldLabel } from '../components/ui/FieldLabel';
+
 
 const UNIT_TYPES = ['WEIGHT', 'VOLUME', 'COUNT', 'OTHER'] as const;
 
@@ -139,16 +141,16 @@ function UnitFormModal({ mode, unit, onClose, onSaved }: { mode: 'create' | 'edi
         {error && <div role="alert" className="rounded-xl border border-danger/25 bg-danger-soft px-4 py-2.5 text-sm text-danger">{error}</div>}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label htmlFor="unit-name" className="mb-1.5 block text-xs font-semibold text-ink">Name *</label>
+            <FieldLabel htmlFor="unit-name" className="mb-1.5 block text-xs font-semibold text-ink">Name *</FieldLabel>
             <input id="unit-name" type="text" required autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Kilogram" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
           </div>
           <div>
-            <label htmlFor="unit-symbol" className="mb-1.5 block text-xs font-semibold text-ink">Symbol *</label>
+            <FieldLabel htmlFor="unit-symbol" className="mb-1.5 block text-xs font-semibold text-ink">Symbol *</FieldLabel>
             <input id="unit-symbol" type="text" required value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="e.g. KG" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm uppercase outline-none focus:border-primary" />
           </div>
         </div>
         <div>
-          <label htmlFor="unit-type" className="mb-1.5 block text-xs font-semibold text-ink">Type</label>
+          <FieldLabel htmlFor="unit-type" className="mb-1.5 block text-xs font-semibold text-ink">Type</FieldLabel>
           <select id="unit-type" value={unitType} onChange={(e) => setUnitType(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary">
             {UNIT_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
           </select>

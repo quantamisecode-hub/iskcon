@@ -10,6 +10,7 @@ import { ERROR_CODES } from '../constants/errorCodes.js';
 import { assignmentRepository } from '../repositories/assignment.repository.js';
 import { foodItemRepository } from '../repositories/foodItem.repository.js';
 import { maybeEmitStockAlert } from './foodItem.service.js';
+import { allocateStockFifo } from './fifoInventory.service.js';
 import { emitMaterialRequest, emitNotification, SOCKET_EVENT } from '../lib/socket.js';
 import { transactionWithRetry } from '../lib/dbRetry.js';
 import type { Actor } from './event.service.js';
@@ -945,6 +946,17 @@ export const materialRequestService = {
         remaining: number;
         /** Balance right after this issue — drives the low-stock alarm post-commit. */
         balanceAfter: number;
+        /** FIFO lots consumed by this issue (admin traceability only). */
+        fifo: Array<{
+          stockLotId: string;
+          lotNumber: string;
+          vendorName: string | null;
+          receivedDate: string;
+          quantityAllocated: number;
+          unitCost: number | null;
+          totalCost: number | null;
+        }>;
+        totalCost: number | null;
       }> = [];
 
       for (const request of requestedIssues) {
@@ -960,38 +972,31 @@ export const materialRequestService = {
           throw conflict(`Only ${remaining} remains approved for this item.`);
         }
 
-        // Row lock the inventory line so two admins can never oversell it.
-        const rows = await tx.$queryRaw<Array<{ currentQuantity: number }>>`
-          SELECT currentQuantity FROM \`Inventory\` WHERE foodItemId = ${item.foodItemId} FOR UPDATE
-        `;
-        const balanceBefore = rows[0]?.currentQuantity ?? 0;
-        if (balanceBefore < request.quantity) {
-          throw new ApiError({
-            statusCode: 409,
-            code: ERROR_CODES.CONFLICT,
-            message: `Not enough stock for this item — only ${balanceBefore} available.`,
-          });
-        }
-        const balanceAfter = balanceBefore - request.quantity;
-
-        await tx.inventory.update({
-          where: { foodItemId: item.foodItemId },
-          data: { currentQuantity: balanceAfter },
+        // FIFO engine row-locks the Inventory line + eligible lots, decrements
+        // the lots oldest-first, and writes the per-lot STOCK_OUT ledger rows
+        // and StockAllocation records. It throws 409 CONFLICT when the lot stock
+        // is insufficient. The MaterialRequest row was locked before this call,
+        // keeping the lock order MaterialRequest -> Inventory/lots.
+        const fifoResult = await allocateStockFifo(tx, {
+          foodItemId: item.foodItemId,
+          quantity: request.quantity,
+          actorId: user.id,
+          requestId,
+          eventId: current.eventId,
+          referenceType: 'MATERIAL_REQUEST_ISSUE',
+          referenceId: requestId,
+          remarks: `Issued against ${current.requestCode}`,
         });
-
-        await tx.inventoryTransaction.create({
-          data: {
-            foodItemId: item.foodItemId,
-            transactionType: 'STOCK_OUT',
-            quantity: request.quantity,
-            balanceBefore,
-            balanceAfter,
-            referenceType: 'MATERIAL_REQUEST_ISSUE',
-            referenceId: requestId,
-            performedBy: user.id,
-            remarks: `Issued against ${current.requestCode}`,
-          },
-        });
+        const balanceAfter = fifoResult.balanceAfter;
+        const fifo = fifoResult.allocations.map((allocation) => ({
+          stockLotId: allocation.stockLotId,
+          lotNumber: allocation.lotNumber,
+          vendorName: allocation.vendorName,
+          receivedDate: allocation.receivedDate,
+          quantityAllocated: allocation.quantityAllocated,
+          unitCost: allocation.unitCost,
+          totalCost: allocation.totalCost,
+        }));
 
         const newIssued = round3(alreadyIssued + request.quantity);
         const itemStatus = newIssued >= approvedQuantity ? ('ISSUED' as const) : ('PARTIALLY_ISSUED' as const);
@@ -1012,6 +1017,8 @@ export const materialRequestService = {
           unitSymbol: food?.unit.symbol ?? '',
           remaining: round3(approvedQuantity - newIssued),
           balanceAfter,
+          fifo,
+          totalCost: fifoResult.totalCost,
         });
       }
 
@@ -1058,6 +1065,8 @@ export const materialRequestService = {
             issued: issuedDetails.map((detail) => ({
               foodItemId: detail.foodItemId,
               quantity: detail.quantity,
+              fifo: detail.fifo,
+              totalCost: detail.totalCost,
             })),
           },
           ipAddress: context.ipAddress,

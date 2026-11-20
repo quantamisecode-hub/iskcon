@@ -13,6 +13,8 @@ import { onRealtime } from '../services/realtime/socketClient';
 import { Modal } from '../components/ui/Modal';
 import { Skeleton } from '../components/ui/Skeleton';
 import { ArrowLeftIcon, CheckIcon, TruckIcon } from '../components/ui/icons';
+import { FieldLabel } from '../components/ui/FieldLabel';
+
 
 /**
  * RETURN DETAIL — admin reviews (accept in full / accept partially / reject);
@@ -334,7 +336,7 @@ export function ReturnDetailPage() {
       {showReject && (
         <Modal title="Reject Return" onClose={() => setShowReject(false)} maxWidthClass="max-w-md">
           <div className="space-y-3">
-            <label htmlFor="reject-reason" className="block text-xs font-semibold text-ink">Reason *</label>
+            <FieldLabel htmlFor="reject-reason" className="block text-xs font-semibold text-ink">Reason *</FieldLabel>
             <textarea id="reject-reason" rows={4} value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="e.g. Material was already consumed at the event" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
             {rejectReason.trim() === '' && <p className="text-[11px] text-muted">A reason is required so the requester knows what happened. No stock moves on rejection.</p>}
             <div className="flex items-center justify-end gap-3 pt-1">

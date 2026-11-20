@@ -13,6 +13,11 @@ import { env } from '../config/env.js';
 const standardOptions = {
   standardHeaders: 'draft-8' as const,
   legacyHeaders: false,
+  // Liveness probes and CORS preflights are not API work and must never consume
+  // the authenticated user's request budget.
+  skip(req: Request) {
+    return req.method === 'OPTIONS' || req.path.startsWith('/health');
+  },
   message: {
     success: false,
     error: {

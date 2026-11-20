@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { SearchIcon, PlusIcon } from '../../../components/ui/icons';
+import { FieldLabel } from '../../../components/ui/FieldLabel';
+
 
 /**
  * Multi-select "add many materials at once" panel.
@@ -202,14 +204,14 @@ export function MultiAddPanel({
                     style={{ accentColor: '#b84234' }}
                     aria-label={isOutOfStock ? `${item.name} — Out of Stock` : item.name}
                   />
-                  <label htmlFor={`multi-add-${item.id}`} className={`min-w-0 flex-1 select-none ${isOutOfStock ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                  <FieldLabel htmlFor={`multi-add-${item.id}`} className={`min-w-0 flex-1 select-none ${isOutOfStock ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
                     <span className="block truncate text-sm font-medium text-ink">{item.name}</span>
                     {isOutOfStock ? (
                       <span className="mt-0.5 inline-flex items-center rounded-full border border-danger/30 bg-danger-soft px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-danger">Out of Stock — stock in first</span>
                     ) : (
                       <span className="block text-[10px] text-secondary">Stock {item.stock} {item.unit}</span>
                     )}
-                  </label>
+                  </FieldLabel>
                   {isChecked && !isOutOfStock && (
                     <div className="flex flex-none flex-col items-end gap-1">
                       <div className="flex items-center gap-1.5">

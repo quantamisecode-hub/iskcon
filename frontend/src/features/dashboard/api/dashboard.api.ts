@@ -14,7 +14,6 @@ export interface DashboardEvent {
   name: string;
   eventDate: string;
   startTime: string;
-  endTime: string | null;
   numberOfPeople: number;
   location: string | null;
   status: EventStatus;

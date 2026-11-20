@@ -293,7 +293,7 @@ export function AppLayout() {
 
         <footer className="border-t border-border bg-card py-3">
           <p className="px-4 text-center text-[10px] text-muted">
-            ISKCON — Food Inventory &amp; Material Management · Secure session, HTTP-only cookie
+            ISKCON — Food Inventory &amp; Material Management
           </p>
         </footer>
       </div>
