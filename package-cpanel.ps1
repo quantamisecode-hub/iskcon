@@ -34,6 +34,7 @@ Write-Host "4. Generating clean production package.json (no devDependencies, no 
   "main": "app.js",
   "scripts": {
     "start": "node app.js",
+    "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:deploy": "prisma migrate deploy"
   },
