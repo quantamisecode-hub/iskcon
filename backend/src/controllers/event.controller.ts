@@ -50,10 +50,16 @@ export const eventController = {
         description?: string | null;
         eventDate: string;
         startTime: string;
-        endTime?: string | null;
         numberOfPeople: number;
         location?: string | null;
         notes?: string | null;
+        donationAmount?: number | null;
+        donationGivenBy?: string | null;
+        trNumber?: string | null;
+        eventType?: string | null;
+        servingType?: string | null;
+        contactPerson?: string | null;
+        mobileNumber?: string | null;
         status?: 'DRAFT' | 'PLANNING';
       };
       const result = await eventService.create(actor, body, {
@@ -75,10 +81,16 @@ export const eventController = {
         description?: string | null;
         eventDate?: string;
         startTime?: string;
-        endTime?: string | null;
         numberOfPeople?: number;
         location?: string | null;
         notes?: string | null;
+        donationAmount?: number | null;
+        donationGivenBy?: string | null;
+        trNumber?: string | null;
+        eventType?: string | null;
+        servingType?: string | null;
+        contactPerson?: string | null;
+        mobileNumber?: string | null;
       };
       const result = await eventService.update(actor, id, body, {
         ipAddress: req.ip,
@@ -94,7 +106,13 @@ export const eventController = {
     try {
       const actor = getAuthenticatedUser(req);
       const { id } = res.locals['validatedParams'] as { id: string };
-      const { status, reason } = req.body as { status: string; reason?: string };
+      const { status, reason, donationType, donationAmount, trNumber } = req.body as {
+        status: string;
+        reason?: string;
+        donationType?: string;
+        donationAmount?: number | null;
+        trNumber?: string | null;
+      };
       const result = await eventService.changeStatus(
         actor,
         id,
@@ -104,8 +122,56 @@ export const eventController = {
           userAgent: req.headers['user-agent'],
         },
         reason,
+        donationType || donationAmount !== undefined || trNumber !== undefined
+          ? { type: donationType, amount: donationAmount, trNumber }
+          : undefined,
       );
       sendSuccess(res, result, 'Event status updated');
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /** POST /events/:id/undo — revert READY -> PLANNING or COMPLETED -> READY. */
+  async undo(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const actor = getAuthenticatedUser(req);
+      const { id } = res.locals['validatedParams'] as { id: string };
+      const result = await eventService.undo(actor, id, {
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+      sendSuccess(res, result, 'Event status undone');
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /** POST /events/:id/dispatch — record destination + verified-by (ADMIN + EXECUTOR). */
+  async dispatch(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const actor = getAuthenticatedUser(req);
+      const { id } = res.locals['validatedParams'] as { id: string };
+      const { destinationAddress, verifiedById } = req.body as { destinationAddress: string; verifiedById: string };
+      const result = await eventService.dispatch(
+        actor,
+        id,
+        { destinationAddress, verifiedById },
+        { ipAddress: req.ip, userAgent: req.headers['user-agent'] },
+      );
+      sendSuccess(res, result, 'Dispatch details saved');
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /** GET /events/:id/dispatch/verifiers — active executors for the Verified By dropdown. */
+  async dispatchVerifiers(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const actor = getAuthenticatedUser(req);
+      const { id } = res.locals['validatedParams'] as { id: string };
+      const result = await eventService.listDispatchVerifiers(actor, id);
+      sendSuccess(res, result, 'Dispatch verifiers retrieved');
     } catch (error) {
       next(error);
     }
@@ -170,7 +236,7 @@ export const eventController = {
     try {
       const actor = getAuthenticatedUser(req);
       const { id } = res.locals['validatedParams'] as { id: string };
-      const body = req.body as { dishId: string; notes?: string | null; displayOrder?: number };
+      const body = req.body as { dishId: string; notes?: string | null; displayOrder?: number; quantity?: number | null; quantityUnit?: string | null };
       const result = await eventService.addDish(actor, id, body, {
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
@@ -185,7 +251,7 @@ export const eventController = {
     try {
       const actor = getAuthenticatedUser(req);
       const { id, eventDishId } = res.locals['validatedParams'] as { id: string; eventDishId: string };
-      const body = req.body as { displayOrder?: number; notes?: string | null };
+      const body = req.body as { displayOrder?: number; notes?: string | null; quantity?: number | null; quantityUnit?: string | null };
       const result = await eventService.updateEventDish(actor, id, eventDishId, body, {
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],

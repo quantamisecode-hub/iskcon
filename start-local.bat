@@ -34,13 +34,18 @@ echo System launched successfully!
 echo Backend:  http://localhost:5000
 echo Frontend: http://localhost:5173
 echo.
+REM Development credentials are read from backend\.env — never hardcoded here.
+for /f "usebackq tokens=1,* delims==" %%A in (`findstr /b "DEV_ADMIN_EMAIL" "%~dp0backend\.env"`) do set "DEV_ADMIN_EMAIL=%%~B"
+for /f "usebackq tokens=1,* delims==" %%A in (`findstr /b "DEV_ADMIN_PASSWORD" "%~dp0backend\.env"`) do set "DEV_ADMIN_PASSWORD=%%~B"
+for /f "usebackq tokens=1,* delims==" %%A in (`findstr /b "DEV_EXECUTOR_EMAIL" "%~dp0backend\.env"`) do set "DEV_EXECUTOR_EMAIL=%%~B"
+for /f "usebackq tokens=1,* delims==" %%A in (`findstr /b "DEV_EXECUTOR_PASSWORD" "%~dp0backend\.env"`) do set "DEV_EXECUTOR_PASSWORD=%%~B"
 echo Admin credentials:
-echo   Email:    admin@foodinventory.local
-echo   Password: AdminPassword#123
+echo   Email:    %DEV_ADMIN_EMAIL%
+echo   Password: %DEV_ADMIN_PASSWORD%
 echo.
 echo Executor credentials:
-echo   Email:    executor@foodinventory.local
-echo   Password: ExecutorPassword#123
+echo   Email:    %DEV_EXECUTOR_EMAIL%
+echo   Password: %DEV_EXECUTOR_PASSWORD%
 echo ====================================================
 pause
 

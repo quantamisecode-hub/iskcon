@@ -79,7 +79,7 @@ function layoutDayEvents(dayEvents: CalendarEvent[]): LaidOutEvent[] {
   const items = dayEvents
     .map((event) => {
       const start = parseTimeMinutes(event.startTime) ?? GRID_START_MIN;
-      const end = parseTimeMinutes(event.endTime) ?? Math.min(GRID_END_MIN, start + 60);
+      const end = Math.min(GRID_END_MIN, start + 60);
       const clampedStart = Math.min(Math.max(start, GRID_START_MIN), GRID_END_MIN - 30);
       const clampedEnd = Math.min(Math.max(end, clampedStart + 30), GRID_END_MIN);
       return {
@@ -488,7 +488,7 @@ function TimeGrid({
                   <Link
                     key={event.id}
                     to={`/events/${event.id}`}
-                    title={`${event.name} — ${event.startTime}${event.endTime ? ` to ${event.endTime}` : ''} — ${event.numberOfPeople} people — ${event.status}`}
+                    title={`${event.name} — ${event.startTime} — ${event.numberOfPeople} people — ${event.status}`}
                     className={`absolute overflow-hidden rounded-lg border px-2 py-1 text-[10px] font-medium leading-tight shadow-sm transition hover:shadow-md ${EVENT_STATUS_CHIP[event.status]}`}
                     style={{
                       top: (topMin / 60) * HOUR_PX + 2,
@@ -497,7 +497,7 @@ function TimeGrid({
                       width: `calc(${widthPct}% - 4px)`,
                     }}
                   >
-                    <span className="block truncate font-bold tabular-nums">{event.startTime}{event.endTime ? `–${event.endTime}` : ''}</span>
+                    <span className="block truncate font-bold tabular-nums">{event.startTime}</span>
                     <span className="block truncate">{event.name}</span>
                     {heightMin >= 60 && (
                       <span className="mt-0.5 block truncate text-[9px] opacity-80">
@@ -563,7 +563,7 @@ function AgendaList({
                           <div className="min-w-0">
                             <p className="truncate text-sm font-semibold text-ink">{event.name}</p>
                             <p className="mt-0.5 text-[11px] text-secondary">
-                              {event.startTime}{event.endTime ? ` – ${event.endTime}` : ''} · {event.numberOfPeople} people
+                              {event.startTime} · {event.numberOfPeople} people
                             </p>
                           </div>
                         </div>

@@ -5,6 +5,7 @@ import { fetchCategories, type CategoryRow, fetchUnitsList, type UnitRow } from 
 import { Modal } from '../components/ui/Modal';
 import { Skeleton } from '../components/ui/Skeleton';
 import {
+
   ArchiveIcon,
   CheckIcon,
   DescriptionIcon,
@@ -16,6 +17,7 @@ import {
   SearchIcon,
   TagIcon,
 } from '../components/ui/icons';
+import { FieldLabel } from '../components/ui/FieldLabel';
 
 const PAGE_SIZE = 15;
 
@@ -260,14 +262,14 @@ function FoodItemFormModal({
           </div>
         )}
         <div>
-          <label htmlFor="fi-name" className="mb-1.5 block text-xs font-semibold text-ink">Name *</label>
+          <FieldLabel htmlFor="fi-name" className="mb-1.5 block text-xs font-semibold text-ink">Name *</FieldLabel>
           <div className="relative">
             <TagIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
             <input id="fi-name" type="text" required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Basmati Rice" className="w-full rounded-xl border border-border-strong/70 bg-white py-2.5 pl-10 pr-3.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
           </div>
         </div>
         <div>
-          <label htmlFor="fi-desc" className="mb-1.5 block text-xs font-semibold text-ink">Description</label>
+          <FieldLabel htmlFor="fi-desc" className="mb-1.5 block text-xs font-semibold text-ink">Description</FieldLabel>
           <div className="relative">
             <DescriptionIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
             <input id="fi-desc" type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional notes about this item" className="w-full rounded-xl border border-border-strong/70 bg-white py-2.5 pl-10 pr-3.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
@@ -275,7 +277,7 @@ function FoodItemFormModal({
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label htmlFor="fi-cat" className="mb-1.5 block text-xs font-semibold text-ink">Category *</label>
+            <FieldLabel htmlFor="fi-cat" className="mb-1.5 block text-xs font-semibold text-ink">Category *</FieldLabel>
             <div className="relative">
               <LayersIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
               <select id="fi-cat" required value={categoryName} onChange={(e) => setCategoryName(e.target.value)} disabled={mode === 'edit' || noCategories} className="w-full appearance-none rounded-xl border border-border-strong/70 bg-white py-2.5 pl-10 pr-3.5 text-sm outline-none focus:border-primary disabled:bg-background disabled:text-muted">
@@ -285,7 +287,7 @@ function FoodItemFormModal({
             </div>
           </div>
           <div>
-            <label htmlFor="fi-unit" className="mb-1.5 block text-xs font-semibold text-ink">Unit *</label>
+            <FieldLabel htmlFor="fi-unit" className="mb-1.5 block text-xs font-semibold text-ink">Unit *</FieldLabel>
             <div className="relative">
               <RulerIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
               <select id="fi-unit" required value={unitSymbol} onChange={(e) => setUnitSymbol(e.target.value)} disabled={mode === 'edit' || noUnits} className="w-full appearance-none rounded-xl border border-border-strong/70 bg-white py-2.5 pl-10 pr-3.5 text-sm outline-none focus:border-primary disabled:bg-background disabled:text-muted">
@@ -297,7 +299,7 @@ function FoodItemFormModal({
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label htmlFor="fi-min" className="mb-1.5 block text-xs font-semibold text-ink">Minimum stock</label>
+            <FieldLabel htmlFor="fi-min" className="mb-1.5 block text-xs font-semibold text-ink">Minimum stock</FieldLabel>
             <div className="relative">
               <ArchiveIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
               <input id="fi-min" type="number" min={0} step={1} value={minimumStock} onChange={(e) => setMinimumStock(e.target.value)} aria-describedby="fi-min-help" className="w-full rounded-xl border border-border-strong/70 bg-white py-2.5 pl-10 pr-3.5 text-sm outline-none focus:border-primary" />
@@ -305,7 +307,7 @@ function FoodItemFormModal({
             <p id="fi-min-help" className="mt-1.5 text-[10px] leading-snug text-muted">Critical floor — stock at/below this is flagged CRITICAL.</p>
           </div>
           <div>
-            <label htmlFor="fi-reorder" className="mb-1.5 block text-xs font-semibold text-ink">Reorder level</label>
+            <FieldLabel htmlFor="fi-reorder" className="mb-1.5 block text-xs font-semibold text-ink">Reorder level</FieldLabel>
             <div className="relative">
               <GaugeIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
               <input id="fi-reorder" type="number" min={0} step={1} value={reorderLevel} onChange={(e) => setReorderLevel(e.target.value)} aria-describedby="fi-reorder-help" className="w-full rounded-xl border border-border-strong/70 bg-white py-2.5 pl-10 pr-3.5 text-sm outline-none focus:border-primary" />

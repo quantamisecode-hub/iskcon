@@ -24,7 +24,7 @@ export const inventoryRepository = {
 
   async incrementQuantity(foodItemId: string, amount: number): Promise<Inventory> {
     const existing = await prisma.inventory.findUnique({ where: { foodItemId } });
-    const newQty = (existing?.currentQuantity ?? 0) + amount;
+    const newQty = Number(existing?.currentQuantity ?? 0) + amount;
     return prisma.inventory.upsert({
       where: { foodItemId },
       update: { currentQuantity: newQty },
@@ -34,7 +34,7 @@ export const inventoryRepository = {
 
   async decrementQuantity(foodItemId: string, amount: number): Promise<Inventory> {
     const existing = await prisma.inventory.findUnique({ where: { foodItemId } });
-    const newQty = Math.max(0, (existing?.currentQuantity ?? 0) - amount);
+    const newQty = Math.max(0, Number(existing?.currentQuantity ?? 0) - amount);
     return prisma.inventory.upsert({
       where: { foodItemId },
       update: { currentQuantity: newQty },

@@ -3,6 +3,7 @@ import { prisma } from '../config/database.js';
 import { assignmentRepository } from '../repositories/assignment.repository.js';
 import type { Actor } from './event.service.js';
 import { env } from '../config/env.js';
+import { APP_CONSTANTS, IST_OFFSET_MS } from '../constants/app.js';
 
 /**
  * DASHBOARD SUMMARY SERVICE (read-only, deterministic).
@@ -15,9 +16,6 @@ import { env } from '../config/env.js';
  * Inventory facts are shared operational data visible to both roles
  * (executors already see live stock in the planning UI).
  */
-
-const APP_TIMEZONE = 'Asia/Kolkata';
-const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
 function istDateParts(base: Date): { year: number; month: number; day: number } {
   const ist = new Date(base.getTime() + IST_OFFSET_MS);
@@ -59,7 +57,6 @@ function serializeEvent(event: {
   name: string;
   eventDate: Date;
   startTime: string;
-  endTime: string | null;
   numberOfPeople: number;
   location: string | null;
   status: string;
@@ -71,7 +68,6 @@ function serializeEvent(event: {
     name: event.name,
     eventDate: event.eventDate.toISOString().slice(0, 10),
     startTime: event.startTime,
-    endTime: event.endTime,
     numberOfPeople: event.numberOfPeople,
     location: event.location,
     status: event.status,
@@ -140,7 +136,7 @@ export const dashboardService = {
       return {
         role: 'EXECUTOR' as const,
         generatedAt: new Date().toISOString(),
-        timezone: env.NODE_ENV === 'test' ? 'UTC' : APP_TIMEZONE,
+        timezone: env.NODE_ENV === 'test' ? 'UTC' : APP_CONSTANTS.timeZone,
         today: todayStr,
         todaysEvents,
         upcomingEvents,
@@ -229,11 +225,11 @@ export const dashboardService = {
 
     for (const row of inventories) {
       if (row.foodItem.isActive) totalActiveItems += 1;
-      totalStock += row.currentQuantity;
-      if (row.currentQuantity > 0) itemsInStock += 1;
+      const qty = Number(row.currentQuantity);
+      totalStock += qty;
+      if (qty > 0) itemsInStock += 1;
       const unitSymbol = row.foodItem.unit.symbol;
-      stockByUnit.set(unitSymbol, (stockByUnit.get(unitSymbol) ?? 0) + row.currentQuantity);
-      const qty = row.currentQuantity;
+      stockByUnit.set(unitSymbol, (stockByUnit.get(unitSymbol) ?? 0) + qty);
       if (qty === 0) {
         outOfStock += 1;
         if (row.foodItem.isActive) lowStockItems.push({ id: row.foodItem.id, name: row.foodItem.name, quantity: 0, minimumStock: row.foodItem.minimumStock, reorderLevel: row.foodItem.reorderLevel, unit: row.foodItem.unit.symbol });
@@ -267,8 +263,8 @@ export const dashboardService = {
       const key = istDateString(tx.createdAt);
       const bucket = movementMap.get(key);
       if (!bucket) continue;
-      if (tx.transactionType === 'STOCK_IN' || tx.transactionType === 'RETURN') bucket.stockIn += tx.quantity;
-      if (tx.transactionType === 'STOCK_OUT') bucket.stockOut += tx.quantity;
+      if (tx.transactionType === 'STOCK_IN' || tx.transactionType === 'RETURN') bucket.stockIn += Number(tx.quantity);
+      if (tx.transactionType === 'STOCK_OUT') bucket.stockOut += Number(tx.quantity);
     }
     const stockMovement7d = [...movementMap.entries()].map(([date, values]) => ({ date, ...values }));
 
@@ -353,7 +349,7 @@ export const dashboardService = {
             plannedByItem.set(line.foodItemId, {
               name: line.foodItem.name,
               planned: Number(line.plannedQuantity),
-              current: line.foodItem.inventory?.currentQuantity ?? 0,
+              current: Number(line.foodItem.inventory?.currentQuantity ?? 0),
               unit: line.foodItem.unit.symbol,
             });
           }
@@ -374,7 +370,7 @@ export const dashboardService = {
     return {
       role: 'ADMIN' as const,
       generatedAt: new Date().toISOString(),
-      timezone: APP_TIMEZONE,
+      timezone: APP_CONSTANTS.timeZone,
       today: todayStr,
       kpis: {
         totalFoodItems: totalActiveItems,

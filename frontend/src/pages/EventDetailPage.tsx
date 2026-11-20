@@ -5,6 +5,8 @@ import {
   addEventMaterial,
   cancelEvent,
   changeEventStatus,
+  dispatchEvent,
+  fetchDispatchVerifiers,
   deleteEvent,
   fetchEvent,
   fetchEventMaterialSummary,
@@ -13,7 +15,10 @@ import {
   fetchUnits,
   removeEventDish,
   removeEventMaterial,
+  undoEvent,
+  updateEventDish,
   updateEventMaterial,
+  type DispatchVerifier,
   type EventMaterialSummary,
   type FoodItemDropdownItem,
 } from '../features/events/api/events.api';
@@ -29,9 +34,14 @@ import { useAuth } from '../hooks/useAuth';
 import { onRealtime, SOCKET_EVENT } from '../services/realtime/socketClient';
 import { MultiAddPanel, type MultiAddEntry } from '../features/events/components/MultiAddPanel';
 import { Modal } from '../components/ui/Modal';
+import { APP_CONSTANTS, DONATION_TYPES } from '../constants/appConstants';
+import { formatTime12h, isEventBeforeDispatch, isoDateToDisplay } from '../utils/dateTime';
+import { downloadDispatchChallanPdf } from '../features/events/components/DispatchChallanPdf';
 import { Skeleton } from '../components/ui/Skeleton';
 import type { EventDetail, EventStatus, UnitRef } from '../features/events/types';
-import { AlertCircleIcon, CalendarIcon, ChevronDownIcon, ClockIcon, GaugeIcon, LockIcon, MapPinIcon, PlusIcon, TruckIcon, UsersIcon, UtensilsIcon } from '../components/ui/icons';
+import { AlertCircleIcon, CalendarIcon, CheckIcon, ChevronDownIcon, ClockIcon, DownloadIcon, GaugeIcon, LockIcon, MapPinIcon, PlusIcon, TruckIcon, UsersIcon, UtensilsIcon } from '../components/ui/icons';
+import { FieldLabel } from '../components/ui/FieldLabel';
+
 
 const EDITABLE: ReadonlySet<EventStatus> = new Set(['DRAFT', 'PLANNING']);
 
@@ -86,6 +96,18 @@ export function EventDetailPage() {
   const [pendingCancel, setPendingCancel] = useState(false);
   /** §28: cancellation always carries a mandatory reason (sent to POST /events/:id/cancel). */
   const [cancelReason, setCancelReason] = useState('');
+  // Complete Event modal: donation type + (admin only) amount / TR number.
+  const [showComplete, setShowComplete] = useState(false);
+  const [completionDonationType, setCompletionDonationType] = useState('');
+  const [completionAmount, setCompletionAmount] = useState('');
+  const [completionTrNumber, setCompletionTrNumber] = useState('');
+  // Ready-for-dispatch modal (ADMIN + EXECUTOR — records details, not status).
+  const [showDispatch, setShowDispatch] = useState(false);
+  const [dispatchDestination, setDispatchDestination] = useState('');
+  const [dispatchVerifiedById, setDispatchVerifiedById] = useState('');
+  const [dispatchVerifiers, setDispatchVerifiers] = useState<DispatchVerifier[]>([]);
+  const [dispatchVerifiersLoading, setDispatchVerifiersLoading] = useState(false);
+  const [dispatchPdfBusy, setDispatchPdfBusy] = useState(false);
   const [showCreateRequest, setShowCreateRequest] = useState(false);
   const [requestNotes, setRequestNotes] = useState('');
   const [creatingRequest, setCreatingRequest] = useState(false);
@@ -323,11 +345,121 @@ export function EventDetailPage() {
     });
   };
 
+  /** COMPLETE — asks for donation type first; admin supplies amount + TR number. */
+  const submitCompletion = () => {
+    if (!event) return;
+    if (!completionDonationType) {
+      setActionError('Select a type of donation.');
+      return;
+    }
+    let amount: number | undefined;
+    let trNumber: string | undefined;
+    if (completionDonationType === 'DONATION' && isAdmin) {
+      const parsed = Number.parseFloat(completionAmount);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        setActionError('Enter a valid donation amount.');
+        return;
+      }
+      if (!completionTrNumber.trim()) {
+        setActionError('TR number is required for donations.');
+        return;
+      }
+      amount = parsed;
+      trNumber = completionTrNumber.trim();
+    }
+    setShowComplete(false);
+    void runAction(() =>
+      changeEventStatus(event.id, 'COMPLETED', {
+        donationType: completionDonationType,
+        donationAmount: amount,
+        trNumber,
+      }),
+    ).then(() => showNotice('Event marked as completed.'));
+  };
+
+  /** READY FOR DISPATCH — ADMIN + EXECUTOR. Records details; status is unchanged. */
+  const openDispatchModal = () => {
+    if (!event) return;
+    setActionError(null);
+    setDispatchDestination(event.dispatchDestination ?? event.location ?? '');
+    setDispatchVerifiedById(event.verifiedById ?? '');
+    setDispatchVerifiers([]);
+    setDispatchVerifiersLoading(true);
+    setShowDispatch(true);
+    fetchDispatchVerifiers(event.id)
+      .then(setDispatchVerifiers)
+      .catch(() => setActionError(APP_CONSTANTS.dispatch.messages.verifiersLoadFailed))
+      .finally(() => setDispatchVerifiersLoading(false));
+  };
+
+  const submitDispatch = () => {
+    if (!event) return;
+    const destination = dispatchDestination.trim();
+    if (!destination) { setActionError(APP_CONSTANTS.dispatch.messages.destinationRequired); return; }
+    if (!dispatchVerifiedById) { setActionError(APP_CONSTANTS.dispatch.messages.verifierRequired); return; }
+    if (isEventBeforeDispatch(event.eventDate, event.startTime, new Date().toISOString(), APP_CONSTANTS.format.timeZoneOffsetMinutes)) {
+      setActionError(APP_CONSTANTS.dispatch.messages.eventBeforeDispatch);
+      return;
+    }
+    setShowDispatch(false);
+    void runAction(() =>
+      dispatchEvent(event.id, { destinationAddress: destination, verifiedById: dispatchVerifiedById }),
+    ).then(() => showNotice(APP_CONSTANTS.dispatch.messages.saved));
+  };
+
+  const printDispatchChallan = async () => {
+    if (!event) return;
+    const destination = dispatchDestination.trim();
+    if (!destination) { setActionError(APP_CONSTANTS.dispatch.messages.destinationRequiredForPrint); return; }
+    const verifier = dispatchVerifiers.find((item) => item.id === dispatchVerifiedById);
+    if (!verifier) { setActionError(APP_CONSTANTS.dispatch.messages.verifierRequiredForPrint); return; }
+    if (isEventBeforeDispatch(event.eventDate, event.startTime, new Date().toISOString(), APP_CONSTANTS.format.timeZoneOffsetMinutes)) {
+      setActionError(APP_CONSTANTS.dispatch.messages.eventBeforeDispatch);
+      return;
+    }
+    setActionError(null);
+    setDispatchPdfBusy(true);
+    try {
+      await downloadDispatchChallanPdf({
+        event,
+        destinationAddress: destination,
+        verifiedByName: `${verifier.firstName} ${verifier.lastName}`,
+      });
+    } catch (err) {
+      setActionError((err as { message?: string })?.message ?? APP_CONSTANTS.dispatch.messages.pdfFailed);
+    } finally {
+      setDispatchPdfBusy(false);
+    }
+  };
+
+  /** Downloads the challan from the persisted dispatch details (post-save). */
+  const downloadSavedDispatchPdf = async () => {
+    if (!event) return;
+    setActionError(null);
+    setDispatchPdfBusy(true);
+    try {
+      await downloadDispatchChallanPdf({
+        event,
+        destinationAddress: event.dispatchDestination ?? event.location ?? '',
+        verifiedByName: event.verifiedBy
+          ? `${event.verifiedBy.firstName} ${event.verifiedBy.lastName}`
+          : APP_CONSTANTS.dispatch.unknownVerifier,
+      });
+    } catch (err) {
+      setActionError((err as { message?: string })?.message ?? APP_CONSTANTS.dispatch.messages.pdfFailed);
+    } finally {
+      setDispatchPdfBusy(false);
+    }
+  };
+
   /**
    * §41–§46 RETURN — EXECUTOR only. POSTing creates the return at
    * PENDING_ADMIN_REVIEW; stock is untouched until an admin accepts it.
    */
+  const hasReturnableMaterial = summary?.lines.some((line) => line.returnableQuantity > 0) ?? false;
+
   const openReturnModal = () => {
+    if (!hasReturnableMaterial) return;
     setReturnError(null);
     setReturnQty({});
     setReturnReason('EXTRA_MATERIAL');
@@ -515,6 +647,14 @@ export function EventDetailPage() {
                     setPendingCancel(true);
                     return;
                   }
+                  if (action.target === 'COMPLETED') {
+                    setCompletionDonationType('');
+                    setCompletionAmount(event.donationAmount === null ? '' : String(event.donationAmount));
+                    setCompletionTrNumber(event.trNumber ?? '');
+                    setActionError(null);
+                    setShowComplete(true);
+                    return;
+                  }
                   void runAction(() => changeEventStatus(event.id, action.target)).then(() =>
                     showNotice(`Event moved to ${action.target}.`),
                   );
@@ -528,6 +668,28 @@ export function EventDetailPage() {
                 {action.label}
               </button>
             ))}
+            {(event.status === 'READY' || event.status === 'COMPLETED') && (
+              <button
+                type="button"
+                disabled={isBusy}
+                onClick={openDispatchModal}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-primary/40 bg-primary-soft/50 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-primary-deep transition hover:bg-primary-soft disabled:opacity-60"
+              >
+                <TruckIcon className="h-4 w-4" />
+                Ready for Dispatch
+              </button>
+            )}
+            {event.dispatchedAt && (
+              <button
+                type="button"
+                disabled={dispatchPdfBusy}
+                onClick={() => void downloadSavedDispatchPdf()}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-border-strong/60 bg-white px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-ink transition hover:border-primary hover:text-primary disabled:opacity-60"
+              >
+                <DownloadIcon className="h-4 w-4" />
+                Download Dispatch Challan
+              </button>
+            )}
             {isEditable && (
               <>
                 <button
@@ -561,8 +723,25 @@ export function EventDetailPage() {
         </div>
       )}
       {!isEditable && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
-          This event is <strong>{event.status}</strong> — dishes and materials are locked. Review only; no further planning edits or deletions are allowed.
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
+          <p>
+            This event is <strong>{event.status}</strong> — dishes and materials are locked. Review only; no further planning edits or deletions are
+            allowed.
+          </p>
+          {(event.status === 'READY' || event.status === 'COMPLETED') && (
+            <button
+              type="button"
+              disabled={isBusy}
+              onClick={() =>
+                void runAction(() => undoEvent(event.id)).then(() =>
+                  showNotice(`Reverted ${event.status} — planning reopened.`),
+                )
+              }
+              className="rounded-lg border border-amber-300 bg-white/70 px-3.5 py-1.5 text-xs font-bold text-amber-900 transition hover:bg-white disabled:opacity-60"
+            >
+              Undo {event.status === 'READY' ? 'Ready' : 'Completed'}
+            </button>
+          )}
         </div>
       )}
 
@@ -597,13 +776,12 @@ export function EventDetailPage() {
         <SummaryStat
           icon={<CalendarIcon className="h-4 w-4 text-primary" />}
           label="Date"
-          value={formatDateLong(event.eventDate)}
+          value={isoDateToDisplay(event.eventDate)}
         />
         <SummaryStat
           icon={<ClockIcon className="h-4 w-4 text-primary" />}
           label="Time"
-          value={formatTime12h(event.startTime, event.endTime)}
-          secondary={`24h: ${event.startTime}${event.endTime ? ` – ${event.endTime}` : ''}`}
+          value={formatTime12h(event.startTime)}
         />
         <SummaryStat
           icon={<UsersIcon className="h-4 w-4 text-primary" />}
@@ -612,7 +790,7 @@ export function EventDetailPage() {
         />
         <SummaryStat
           icon={<MapPinIcon className="h-4 w-4 text-primary" />}
-          label="Location"
+          label="Address"
           value={event.location ?? '—'}
         />
       </div>
@@ -623,30 +801,63 @@ export function EventDetailPage() {
           <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-secondary">Event Information</h2>
           <dl className="mt-4 space-y-3 text-sm">
             <InfoRow label="Event Code" value={event.eventCode} mono />
+            <InfoRow label="Event Type" value={event.eventType ?? '—'} />
+            <InfoRow label="Type" value={event.servingType ?? '—'} />
+            <InfoRow label="Contact Person" value={event.contactPerson ?? '—'} />
+            <InfoRow label="Mobile Number" value={event.mobileNumber ?? '—'} />
             <InfoRow label="Admin" value={`${event.admin.firstName} ${event.admin.lastName}`} />
             <InfoRow label="Created By" value={`${event.creator.firstName} ${event.creator.lastName}`} />
             <InfoRow label="Status" value={event.status} />
-            <InfoRow label="Created" value={new Date(event.createdAt).toLocaleString('en-GB', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' })} />
+            <InfoRow label="Created" value={new Date(event.createdAt).toLocaleString(APP_CONSTANTS.format.locale, { timeZone: APP_CONSTANTS.format.timeZone, dateStyle: 'medium', timeStyle: 'short' })} />
           </dl>
           {event.description && (
-            <div className="mt-4 border-t border-border pt-4">
+            <div className="mt-4 rounded-xl border border-border bg-primary-soft/40 px-4 py-3">
               <dt className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted">Description</dt>
-              <dd className="mt-1.5 text-sm leading-relaxed text-secondary">{event.description}</dd>
+              <dd className="mt-1.5 text-sm font-bold leading-relaxed text-secondary">{event.description}</dd>
             </div>
           )}
           {event.notes && (
-            <div className="mt-4 border-t border-border pt-4">
+            <div className="mt-4 rounded-xl border border-border bg-primary-soft/40 px-4 py-3">
               <dt className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted">Notes</dt>
-              <dd className="mt-1.5 text-sm leading-relaxed text-secondary">{event.notes}</dd>
+              <dd className="mt-1.5 text-sm font-bold leading-relaxed text-secondary">{event.notes}</dd>
             </div>
           )}
-          <div className="mt-4 border-t border-border pt-4">
+          {isAdmin && (event.donationAmount !== null || (event.donationGivenBy ?? '') !== '' || (event.trNumber ?? '') !== '' || !!event.donationType) && (
+            <div className="mt-4 rounded-xl border border-border bg-primary-soft/40 px-4 py-3">
+              <dt className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted">Donation</dt>
+              <dd className="mt-1.5 space-y-1">
+                {event.donationType && (
+                  <p className="text-sm leading-relaxed text-secondary">
+                    <span className="font-semibold text-ink">Type:</span>{' '}
+                    {APP_CONSTANTS.event.donationTypeLabels[event.donationType as keyof typeof APP_CONSTANTS.event.donationTypeLabels] ??
+                      event.donationType}
+                  </p>
+                )}
+                {event.donationAmount !== null && event.donationAmount !== undefined && (
+                  <p className="text-sm leading-relaxed text-secondary">
+                    <span className="font-semibold text-ink">Amount:</span> ₹{event.donationAmount.toFixed(2)}
+                  </p>
+                )}
+                {event.donationGivenBy && (
+                  <p className="text-sm leading-relaxed text-secondary">
+                    <span className="font-semibold text-ink">Given by:</span> {event.donationGivenBy}
+                  </p>
+                )}
+                {event.trNumber && (
+                  <p className="text-sm leading-relaxed text-secondary">
+                    <span className="font-semibold text-ink">TR Number:</span> {event.trNumber}
+                  </p>
+                )}
+              </dd>
+            </div>
+          )}
+          <div className="mt-4 rounded-xl border border-border bg-primary-soft/40 px-4 py-3">
             <dt className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted">Summary</dt>
             <dd className="mt-2 flex flex-wrap gap-4">
               <span className="rounded-xl bg-primary-soft/50 px-3 py-1.5 text-xs font-bold text-primary-deep">
                 {event.summary.totalDishes} {event.summary.totalDishes === 1 ? 'dish' : 'dishes'}
               </span>
-              <span className="rounded-xl bg-primary-soft/50 px-3 py-1.5 text-xs font-bold text-primary-deep">
+              <span className="rounded-xl bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-900">
                 {event.summary.totalMaterialLines} material {event.summary.totalMaterialLines === 1 ? 'line' : 'lines'}
               </span>
             </dd>
@@ -698,8 +909,12 @@ export function EventDetailPage() {
                       available even after the event is cancelled or completed. */}
                   <button
                     type="button"
-                    disabled={isBusy}
-                    title="Return issued material that was not used"
+                    disabled={isBusy || !hasReturnableMaterial}
+                    title={
+                      hasReturnableMaterial
+                        ? 'Return issued material that was not used'
+                        : 'No material is currently returnable for this event'
+                    }
                     onClick={openReturnModal}
                     className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-400 bg-emerald-50 px-3.5 py-2 text-xs font-bold text-emerald-800 shadow-sm transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
@@ -760,6 +975,7 @@ export function EventDetailPage() {
             event.dishes.map((eventDish) => (
               <DishCard
                 key={eventDish.id}
+                eventId={event.id}
                 eventDish={eventDish}
                 foodItems={foodItems}
                 units={units}
@@ -773,6 +989,7 @@ export function EventDetailPage() {
                 }
                 planningLocked={planningLocked}
                 isAdmin={isAdmin}
+                eventHeadcount={event.numberOfPeople}
               />
             ))
           )}
@@ -863,6 +1080,146 @@ export function EventDetailPage() {
         />
       )}
 
+      {showDispatch && event && (
+        <Modal title="Ready for Dispatch" onClose={() => setShowDispatch(false)} maxWidthClass="max-w-lg">
+          <div className="space-y-4">
+            <p className="text-sm leading-relaxed text-secondary">
+              Record where <strong className="text-ink">{event.name}</strong> is going and who verified the dispatch.
+              The event status stays <strong className="text-ink">{event.status}</strong>.
+            </p>
+
+            <div>
+              <FieldLabel htmlFor="dispatch-destination" className="mb-1.5 block text-xs font-semibold text-ink">
+                Destination Address <span className="text-danger">*</span>
+              </FieldLabel>
+              <textarea
+                id="dispatch-destination"
+                rows={3}
+                maxLength={APP_CONSTANTS.dispatch.destinationAddressMaxLength}
+                value={dispatchDestination}
+                onChange={(e) => setDispatchDestination(e.target.value)}
+                placeholder="Where is the prasad being dispatched?"
+                className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none transition placeholder:text-muted focus:border-primary focus:ring-2 focus:ring-primary/25"
+              />
+              <p className="mt-1 text-[11px] text-muted">
+                {dispatchDestination.length}/{APP_CONSTANTS.dispatch.destinationAddressMaxLength}
+              </p>
+            </div>
+
+            <div>
+              <FieldLabel htmlFor="dispatch-verifier" className="mb-1.5 block text-xs font-semibold text-ink">
+                Verified By <span className="text-danger">*</span>
+              </FieldLabel>
+              <select
+                id="dispatch-verifier"
+                value={dispatchVerifiedById}
+                onChange={(e) => setDispatchVerifiedById(e.target.value)}
+                disabled={dispatchVerifiersLoading}
+                className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25 disabled:opacity-60"
+              >
+                <option value="">{dispatchVerifiersLoading ? 'Loading executors…' : 'Select an executor…'}</option>
+                {dispatchVerifiers.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.firstName} {item.lastName} — {item.email}
+                  </option>
+                ))}
+              </select>
+              {!dispatchVerifiersLoading && dispatchVerifiers.length === 0 && (
+                <p className="mt-1 text-[11px] text-muted">{APP_CONSTANTS.dispatch.messages.noVerifiers}</p>
+              )}
+            </div>
+
+            {actionError && <p role="alert" className="text-xs font-semibold text-danger">{actionError}</p>}
+
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <button type="button" onClick={() => setShowDispatch(false)} className="rounded-xl border border-border-strong/60 px-4 py-2.5 text-sm font-semibold text-ink hover:bg-background">
+                Cancel
+              </button>
+              <button type="button" disabled={dispatchPdfBusy} onClick={() => void printDispatchChallan()} className="inline-flex items-center gap-1.5 rounded-xl border border-primary/40 bg-white px-4 py-2.5 text-sm font-semibold text-primary-deep transition hover:bg-primary-soft/40 disabled:opacity-60">
+                <TruckIcon className="h-4 w-4" />
+                {dispatchPdfBusy ? 'Generating…' : 'Print / Save as PDF'}
+              </button>
+              <button type="button" disabled={isBusy || dispatchDestination.trim() === '' || !dispatchVerifiedById} onClick={submitDispatch} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-60">
+                {isBusy ? 'Saving…' : 'Save Dispatch Details'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {showComplete && event && (
+        <Modal title="Complete Event" onClose={() => setShowComplete(false)} maxWidthClass="max-w-md">
+          <div className="space-y-4">
+            <p className="text-sm leading-relaxed text-secondary">
+              Confirming will mark <strong className="text-ink">{event.name}</strong> as completed.
+            </p>
+
+            <div>
+              <FieldLabel htmlFor="completion-donation-type" className="mb-1.5 block text-xs font-semibold text-ink">
+                Type of Donation <span className="text-danger">*</span>
+              </FieldLabel>
+              <select
+                id="completion-donation-type"
+                value={completionDonationType}
+                onChange={(e) => setCompletionDonationType(e.target.value)}
+                className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
+              >
+                <option value="">Select…</option>
+                {DONATION_TYPES.filter((type) => isAdmin || type !== 'DONATION').map((type) => (
+                  <option key={type} value={type}>
+                    {APP_CONSTANTS.event.donationTypeLabels[type]}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {completionDonationType === 'DONATION' && isAdmin && (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <FieldLabel htmlFor="completion-amount" className="mb-1.5 block text-xs font-semibold text-ink">
+                    ₹ Donation amount <span className="text-danger">*</span>
+                  </FieldLabel>
+                  <input
+                    id="completion-amount"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={completionAmount}
+                    onChange={(e) => setCompletionAmount(e.target.value)}
+                    className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
+                  />
+                </div>
+                <div>
+                  <FieldLabel htmlFor="completion-tr" className="mb-1.5 block text-xs font-semibold text-ink">
+                    TR Number <span className="text-danger">*</span>
+                  </FieldLabel>
+                  <input
+                    id="completion-tr"
+                    type="text"
+                    maxLength={APP_CONSTANTS.event.donationTrNumberMaxLength}
+                    value={completionTrNumber}
+                    onChange={(e) => setCompletionTrNumber(e.target.value)}
+                    placeholder="e.g. TR/2026/1234"
+                    className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm text-ink placeholder:text-muted outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
+                  />
+                </div>
+              </div>
+            )}
+
+            {actionError && <p role="alert" className="text-xs font-semibold text-danger">{actionError}</p>}
+
+            <div className="flex items-center justify-end gap-3">
+              <button type="button" onClick={() => setShowComplete(false)} className="rounded-xl border border-border-strong/60 px-4 py-2.5 text-sm font-semibold text-ink hover:bg-background">
+                Cancel
+              </button>
+              <button type="button" disabled={isBusy} onClick={submitCompletion} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary-dark disabled:opacity-60">
+                {isBusy ? 'Completing…' : 'Mark as Completed'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {pendingCancel && (
         <Modal title="Cancel Event?" onClose={() => setPendingCancel(false)} maxWidthClass="max-w-md">
           <div className="space-y-4">
@@ -877,9 +1234,9 @@ export function EventDetailPage() {
             </ul>
 
             <div>
-              <label htmlFor="cancel-reason" className="mb-1.5 block text-xs font-semibold text-ink">
+              <FieldLabel htmlFor="cancel-reason" className="mb-1.5 block text-xs font-semibold text-ink">
                 Reason <span className="text-danger">*</span>
-              </label>
+              </FieldLabel>
               <textarea
                 id="cancel-reason"
                 rows={3}
@@ -990,7 +1347,7 @@ export function EventDetailPage() {
             </p>
 
             <div>
-              <label htmlFor="request-notes" className="mb-1.5 block text-xs font-semibold text-ink">Notes (optional)</label>
+              <FieldLabel htmlFor="request-notes" className="mb-1.5 block text-xs font-semibold text-ink">Notes (optional)</FieldLabel>
               <textarea id="request-notes" rows={2} value={requestNotes} onChange={(e) => setRequestNotes(e.target.value)} placeholder="Anything the approver should know" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
             </div>
 
@@ -1075,7 +1432,7 @@ export function EventDetailPage() {
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
-                <label htmlFor="return-reason" className="mb-1.5 block text-xs font-semibold text-ink">Reason</label>
+                <FieldLabel htmlFor="return-reason" className="mb-1.5 block text-xs font-semibold text-ink">Reason</FieldLabel>
                 <select
                   id="return-reason"
                   value={returnReason}
@@ -1090,9 +1447,9 @@ export function EventDetailPage() {
               </div>
               {returnReason === 'OTHER' && (
                 <div>
-                  <label htmlFor="return-reason-note" className="mb-1.5 block text-xs font-semibold text-ink">
+                  <FieldLabel htmlFor="return-reason-note" className="mb-1.5 block text-xs font-semibold text-ink">
                     Note <span className="text-danger">*</span>
-                  </label>
+                  </FieldLabel>
                   <input
                     id="return-reason-note"
                     type="text"
@@ -1107,7 +1464,7 @@ export function EventDetailPage() {
             </div>
 
             <div>
-              <label htmlFor="return-notes" className="mb-1.5 block text-xs font-semibold text-ink">Notes (optional)</label>
+              <FieldLabel htmlFor="return-notes" className="mb-1.5 block text-xs font-semibold text-ink">Notes (optional)</FieldLabel>
               <textarea
                 id="return-notes"
                 rows={2}
@@ -1150,9 +1507,9 @@ export function EventDetailPage() {
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
-                <label htmlFor="additional-reason" className="mb-1.5 block text-xs font-semibold text-ink">
+                <FieldLabel htmlFor="additional-reason" className="mb-1.5 block text-xs font-semibold text-ink">
                   Reason <span className="text-danger">*</span>
-                </label>
+                </FieldLabel>
                 <select
                   id="additional-reason"
                   value={additionalReason}
@@ -1169,9 +1526,9 @@ export function EventDetailPage() {
               </div>
               {additionalReason === 'Other' && (
                 <div>
-                  <label htmlFor="additional-note" className="mb-1.5 block text-xs font-semibold text-ink">
+                  <FieldLabel htmlFor="additional-note" className="mb-1.5 block text-xs font-semibold text-ink">
                     Note <span className="text-danger">*</span>
-                  </label>
+                  </FieldLabel>
                   <input
                     id="additional-note"
                     type="text"
@@ -1246,7 +1603,7 @@ export function EventDetailPage() {
             </div>
 
             <div>
-              <label htmlFor="additional-notes" className="mb-1.5 block text-xs font-semibold text-ink">Notes (optional)</label>
+              <FieldLabel htmlFor="additional-notes" className="mb-1.5 block text-xs font-semibold text-ink">Notes (optional)</FieldLabel>
               <textarea
                 id="additional-notes"
                 rows={2}
@@ -1313,6 +1670,7 @@ export function EventDetailPage() {
 /* ---------- Dish card with materials ---------- */
 
 function DishCard({
+  eventId,
   eventDish,
   foodItems,
   units,
@@ -1324,7 +1682,9 @@ function DishCard({
   onRemove,
   planningLocked,
   isAdmin,
+  eventHeadcount,
 }: {
+  eventId: string;
   eventDish: EventDetail['dishes'][number];
   foodItems: FoodItemDropdownItem[];
   units: UnitRef[];
@@ -1336,7 +1696,11 @@ function DishCard({
   onRemove: () => void;
   planningLocked: boolean;
   isAdmin: boolean;
+  eventHeadcount: number;
 }) {
+  const [quantity, setQuantity] = useState(eventDish.quantity === null ? '' : String(eventDish.quantity));
+  const [quantityUnit, setQuantityUnit] = useState(eventDish.quantityUnit ?? '');
+  const [isSavingQuantity, setIsSavingQuantity] = useState(false);
   const [showAddMaterial, setShowAddMaterial] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
@@ -1356,6 +1720,39 @@ function DishCard({
   );
 
   const stockById = useMemo(() => new Map(availableItems.map((fi) => [fi.id, fi.stock])), [availableItems]);
+
+  useEffect(() => {
+    setQuantity(eventDish.quantity === null ? '' : String(eventDish.quantity));
+    setQuantityUnit(eventDish.quantityUnit ?? '');
+  }, [eventDish.quantity, eventDish.quantityUnit]);
+
+  const quantityIsDirty =
+    quantity !== (eventDish.quantity === null ? '' : String(eventDish.quantity)) ||
+    quantityUnit !== (eventDish.quantityUnit ?? '');
+
+  const saveQuantity = async () => {
+    const trimmed = quantity.trim();
+    const nextQuantity = trimmed === '' ? null : Number(trimmed);
+    if (nextQuantity !== null && (!Number.isFinite(nextQuantity) || nextQuantity <= 0)) {
+      onError('Quantity must be a positive number.');
+      return;
+    }
+    setIsSavingQuantity(true);
+    onError(null);
+    try {
+      const updated = await updateEventDish(eventId, eventDish.id, {
+        quantity: nextQuantity,
+        quantityUnit: nextQuantity === null ? null : quantityUnit || null,
+      });
+      onChanged(updated);
+      onNotice('Dish quantity saved.');
+    } catch (err) {
+      const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
+      onError(msg ?? 'Could not save the dish quantity.');
+    } finally {
+      setIsSavingQuantity(false);
+    }
+  };
 
   const handleAddMaterials = async (entries: MultiAddEntry[], forceDraft: boolean): Promise<void> => {
     setLocalError(null);
@@ -1424,6 +1821,49 @@ function DishCard({
           <div className="min-w-0">
             <h3 className="truncate text-base font-bold text-ink">{eventDish.dish.name}</h3>
             {eventDish.notes && <p className="truncate text-xs text-secondary">{eventDish.notes}</p>}
+            {isEditable ? (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <input
+                  type="number"
+                  min={0.001}
+                  max={APP_CONSTANTS.dishQuantity.max}
+                  step="any"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  placeholder="Qty"
+                  aria-label={`Quantity for ${eventDish.dish.name}`}
+                  className="w-20 rounded-lg border border-border-strong/70 bg-white px-2 py-1 text-xs text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
+                />
+                <select
+                  value={quantityUnit}
+                  onChange={(e) => setQuantityUnit(e.target.value)}
+                  aria-label={`Quantity unit for ${eventDish.dish.name}`}
+                  className="rounded-lg border border-border-strong/70 bg-white px-2 py-1 text-xs text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
+                >
+                  <option value="">Unit</option>
+                  {APP_CONSTANTS.dishQuantity.units.map((unit) => (
+                    <option key={unit} value={unit}>
+                      {unit}
+                    </option>
+                  ))}
+                </select>
+                {quantityIsDirty && (
+                  <button
+                    type="button"
+                    disabled={isBusy || isSavingQuantity}
+                    onClick={() => void saveQuantity()}
+                    className="inline-flex items-center gap-1 rounded-lg bg-primary px-2 py-1 text-[11px] font-bold text-primary-foreground transition hover:bg-primary-dark disabled:opacity-60"
+                  >
+                    <CheckIcon className="h-3.5 w-3.5" />
+                    {isSavingQuantity ? 'Saving…' : 'Save'}
+                  </button>
+                )}
+              </div>
+            ) : (
+              <p className="mt-1 text-[11px] font-semibold text-secondary">
+                {eventDish.quantity ?? eventHeadcount} {eventDish.quantityUnit ?? APP_CONSTANTS.dishQuantity.fallbackUnit}
+              </p>
+            )}
           </div>
         </div>
         {isEditable && (
@@ -1767,25 +2207,6 @@ function SummaryCell({ value, strong, tone }: { value: number; strong?: boolean;
   );
 }
 
-function formatTime12h(startTime: string, endTime: string | null): string {
-  if (!startTime) return '—';
-  const to12h = (time: string): string => {
-    const [hourRaw, minuteRaw] = time.split(':').map(Number);
-    const hour = hourRaw ?? 0;
-    const minute = minuteRaw ?? 0;
-    const period = hour >= 12 ? 'PM' : 'AM';
-    const hour12 = hour % 12 === 0 ? 12 : hour % 12;
-    return `${hour12}:${String(minute).padStart(2, '0')} ${period}`;
-  };
-  return `${to12h(startTime)}${endTime ? ` – ${to12h(endTime)}` : ''}`;
-}
-
-function formatDateLong(isoDate: string): string {
-  const [year, month, day] = isoDate.split('-').map(Number);
-  return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(
-    new Date(year ?? 2026, (month ?? 1) - 1, day ?? 1, 12),
-  );
-}
 
 function EventDetailSkeleton() {
   return (

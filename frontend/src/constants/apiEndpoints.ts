@@ -18,12 +18,16 @@ export const API_ENDPOINTS = {
   dishes: '/dishes',
   calendarEvents: '/calendar/events',
   foodItems: '/food-items',
+  vendors: '/vendors',
   units: '/units',
   dashboardSummary: '/dashboard/summary',
   materialRequests: '/material-requests',
   materialReturns: '/returns',
   notifications: '/notifications',
   ledger: '/ledger',
+  stockLots: '/stock-lots',
+  fifoPreview: '/fifo/preview',
+  inventoryValuation: '/inventory/valuation',
 } as const;
 
 export function materialRequestsPath(id?: string): string {
@@ -67,6 +71,36 @@ export function eventMaterialSummaryPath(eventId: string): string {
 /** Cancellation with a mandatory reason: POST /events/:id/cancel */
 export function eventCancelPath(id: string): string {
   return `${API_ENDPOINTS.events}/${id}/cancel`;
+}
+
+/** Undo the last lifecycle move: POST /events/:id/undo */
+export function eventUndoPath(id: string): string {
+  return `${API_ENDPOINTS.events}/${id}/undo`;
+}
+
+/** Ready for Dispatch: POST /events/:id/dispatch */
+export function eventDispatchPath(id: string): string {
+  return `${API_ENDPOINTS.events}/${id}/dispatch`;
+}
+
+/** Verifier dropdown options: GET /events/:id/dispatch/verifiers */
+export function eventDispatchVerifiersPath(id: string): string {
+  return `${API_ENDPOINTS.events}/${id}/dispatch/verifiers`;
+}
+
+/** FIFO lot ledger: GET /stock-lots (list) or /stock-lots/:id (detail + allocations). */
+export function stockLotPath(id?: string): string {
+  return id ? `${API_ENDPOINTS.stockLots}/${id}` : API_ENDPOINTS.stockLots;
+}
+
+/** ADMIN-only FIFO allocation preview: GET /fifo/preview?foodItemId=&quantity= */
+export function fifoPreviewPath(): string {
+  return API_ENDPOINTS.fifoPreview;
+}
+
+/** ADMIN-only stock valuation: GET /inventory/valuation */
+export function inventoryValuationPath(): string {
+  return API_ENDPOINTS.inventoryValuation;
 }
 
 export function notificationsPath(id?: string): string {
@@ -115,4 +149,24 @@ export function dishPath(id: string): string {
 
 export function dishStatusPath(id: string): string {
   return `${API_ENDPOINTS.dishes}/${id}/status`;
+}
+
+/** Vendor detail / mutation path: /vendors/:id */
+export function vendorPath(id?: string): string {
+  return id ? `${API_ENDPOINTS.vendors}/${id}` : API_ENDPOINTS.vendors;
+}
+
+/** Vendor audit history: /vendors/audit (all) or /vendors/:id/audit (one vendor). */
+export function vendorAuditPath(id?: string): string {
+  return id ? `${API_ENDPOINTS.vendors}/${id}/audit` : `${API_ENDPOINTS.vendors}/audit`;
+}
+
+/** Admin-only activation: POST /vendors/:id/activate */
+export function vendorActivatePath(id: string): string {
+  return `${API_ENDPOINTS.vendors}/${id}/activate`;
+}
+
+/** Admin-only deactivation: POST /vendors/:id/deactivate */
+export function vendorDeactivatePath(id: string): string {
+  return `${API_ENDPOINTS.vendors}/${id}/deactivate`;
 }

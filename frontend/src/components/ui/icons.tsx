@@ -115,6 +115,21 @@ export function InboxIcon(props: IconProps) {
 export function TruckIcon(props: IconProps) {
   return <I {...props}><path d="M1 3h15v13H1z" /><path d="M16 8h4l3 4v4h-7V8z" /><circle cx="5.5" cy="18.5" r="2" /><circle cx="18.5" cy="18.5" r="2" /></I>;
 }
+export function PhoneIcon(props: IconProps) {
+  return <I {...props}><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.2a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z" /></I>;
+}
+export function CoinsIcon(props: IconProps) {
+  return <I {...props}><circle cx="9" cy="9" r="6" /><path d="M9 6v6M6.5 7.5h5M15 15.5a6 6 0 0 1 6 6 6 6 0 0 1-6 6 6 6 0 0 1-6-6 6 6 0 0 1 6-6z" /></I>;
+}
+export function ReturnIcon(props: IconProps) {
+  return <I {...props}><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 0 12h-2" /></I>;
+}
+export function StoreIcon(props: IconProps) {
+  return <I {...props}><path d="M3 10l1.5-6h15L21 10" /><path d="M4 10v9a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-9" /><path d="M3 10a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0" /><path d="M9 20v-5h6v5" /></I>;
+}
+export function DownloadIcon(props: IconProps) {
+  return <I {...props}><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M4 17v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" /></I>;
+}
 export function PackageIcon(props: IconProps) {
   return <I {...props}><path d="M12.89 1.45L2.4 7.9A1 1 0 0 0 1.85 9v6A1 1 0 0 0 2.4 16l10.49 6.55a1 1 0 0 0 1.02 0l10.49-6.55a1 1 0 0 0 .55-.9V9a1 1 0 0 0-.55-.9l-10.49-6.55a1 1 0 0 0-1.02 0z" /><path d="M20 9.35L12.49 4 2.49 9.35M2.49 9.35L12.49 15l10.01-5.65M12.49 22.53V15" /></I>;
 }

@@ -40,12 +40,12 @@ export function createApp(): Express {
   attachSecurityPipeline(app);
   app.use(cookieParser());
 
-  app.use(globalLimiter);
   app.use(originValidationMiddleware);
   app.use(requestLoggerMiddleware);
 
-  // All API surface is versioned under /api/v1.
-  app.use('/api/v1', apiV1Router);
+  // All API surface is versioned under /api/v1. The limiter is scoped to the
+  // API only so serving the built SPA/assets can never burn the request budget.
+  app.use('/api/v1', globalLimiter, apiV1Router);
 
   // Same-origin production deployment: serve the built SPA and fall back to
   // index.html for client-side routes (GET requests that accept HTML).

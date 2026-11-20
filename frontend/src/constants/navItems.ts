@@ -41,5 +41,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { label: 'Requests', to: '/requests', roles: ALL },
   { label: 'Returns', to: '/returns', roles: ALL },
   { label: 'Manage Users', to: '/users', roles: ['ADMIN'] },
+  { label: 'Manage Vendors', to: '/vendors', roles: ['ADMIN'] },
   { label: 'Profile', to: '/profile', roles: ALL },
 ];

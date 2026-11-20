@@ -166,7 +166,9 @@ afterAll(async () => {
   await prisma.notification.deleteMany({ where: { referenceId: { in: createdFoodItemIds } } });
   await prisma.event.deleteMany({ where: { id: { in: createdEventIds } } });
   await prisma.dish.deleteMany({ where: { id: { in: createdDishIds } } });
-  await prisma.inventoryTransaction.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
+  await prisma.stockAllocation.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
+    await prisma.stockLot.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
+    await prisma.inventoryTransaction.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
   await prisma.inventory.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
   await prisma.foodItem.deleteMany({ where: { id: { in: createdFoodItemIds } } });
   await prisma.unit.deleteMany({ where: { id: { in: createdUnitIds } } });
@@ -315,7 +317,7 @@ describe('scoped invariant — ledger == inventory across the full stock cycle',
       .send({ quantity: 100 });
     expect(stockIn.status).toBe(200);
     const stockAfterIn = await prisma.inventory.findUnique({ where: { foodItemId } });
-    expect(stockAfterIn?.currentQuantity).toBe(100);
+    expect(Number(stockAfterIn?.currentQuantity)).toBe(100);
 
     // --- Plan → request → approve → issue 40: 100 → 60.
     const { eventId, eventMaterialId } = await createPlannedEvent(admin.cookie, foodItemId, unitId, 40);
@@ -381,13 +383,13 @@ describe('scoped invariant — ledger == inventory across the full stock cycle',
         ? Number(row.quantity)
         : -Number(row.quantity);
       running += delta;
-      expect(row.balanceAfter).toBe(running);
+      expect(Number(row.balanceAfter)).toBe(running);
     }
 
     // Final ledger balance == current inventory (the core reconciliation invariant).
     const inventory = await prisma.inventory.findUnique({ where: { foodItemId } });
-    expect(inventory?.currentQuantity).toBe(running);
-    expect(inventory?.currentQuantity).toBe(75);
+    expect(Number(inventory?.currentQuantity)).toBe(running);
+    expect(Number(inventory?.currentQuantity)).toBe(75);
 
     // Stock moved ONLY on issue (−40) and accept (+15): creation/approval/return-create never did.
     // (Observed above: 100 → 60 only after issue; 60 → 75 only after accept.)
@@ -420,7 +422,7 @@ describe('scoped invariant — ledger == inventory across the full stock cycle',
       .set('Cookie', admin.cookie)
       .send({ items: [{ itemId, quantity: 30 }] });
     expect(issued.status).toBe(200);
-    expect(await prisma.inventory.findUnique({ where: { foodItemId } }).then((r) => r?.currentQuantity)).toBe(50);
+    expect(await prisma.inventory.findUnique({ where: { foodItemId } }).then((r) => Number(r?.currentQuantity))).toBe(50);
 
     const returnCreated = await request(app)
       .post(`/api/v1/events/${eventId}/returns`)
@@ -430,7 +432,7 @@ describe('scoped invariant — ledger == inventory across the full stock cycle',
 
     // Return row exists and is PENDING — stock untouched, no RETURN ledger row yet.
     const afterCreate = await prisma.inventory.findUnique({ where: { foodItemId } });
-    expect(afterCreate?.currentQuantity).toBe(50);
+    expect(Number(afterCreate?.currentQuantity)).toBe(50);
     const ledgerBefore = await prisma.inventoryTransaction.count({
       where: { foodItemId, transactionType: 'RETURN' },
     });
@@ -447,7 +449,7 @@ describe('scoped invariant — ledger == inventory across the full stock cycle',
     expect(rejected.body.data.return.items[0].rejectedReturnQuantity).toBe(10);
     expect(rejected.body.data.return.items[0].acceptedReturnQuantity).toBe(0);
     const afterReject = await prisma.inventory.findUnique({ where: { foodItemId } });
-    expect(afterReject?.currentQuantity).toBe(50);
+    expect(Number(afterReject?.currentQuantity)).toBe(50);
     const ledgerAfter = await prisma.inventoryTransaction.count({
       where: { foodItemId, transactionType: 'RETURN' },
     });

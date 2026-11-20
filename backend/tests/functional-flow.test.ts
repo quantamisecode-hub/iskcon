@@ -105,7 +105,7 @@ async function createFoodItemWithStock(
 
 async function getStock(foodItemId: string): Promise<number> {
   const row = await prisma.inventory.findUnique({ where: { foodItemId } });
-  return row?.currentQuantity ?? -1;
+  return Number(row?.currentQuantity ?? -1);
 }
 
 async function ledgerSumByType(foodItemId: string, transactionType: string): Promise<number> {
@@ -201,6 +201,8 @@ afterAll(async () => {
     await prisma.materialRequest.deleteMany({ where: { eventId: { in: createdEventIds } } });
     await prisma.event.deleteMany({ where: { id: { in: createdEventIds } } });
     await prisma.dish.deleteMany({ where: { id: { in: createdDishIds } } });
+    await prisma.stockAllocation.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
+    await prisma.stockLot.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
     await prisma.inventoryTransaction.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
     await prisma.inventory.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
     await prisma.foodItem.deleteMany({ where: { id: { in: createdFoodItemIds } } });

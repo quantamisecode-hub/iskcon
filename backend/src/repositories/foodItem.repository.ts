@@ -1,4 +1,4 @@
-import type { FoodItem, Prisma } from '@prisma/client';
+import type { Prisma, FoodItem } from '@prisma/client';
 import { prisma } from './user.repository.js';
 
 export const foodItemRepository = {
@@ -6,7 +6,7 @@ export const foodItemRepository = {
     where?: Prisma.FoodItemWhereInput;
     skip: number;
     take: number;
-  }): Promise<(FoodItem & { unit: { name: string; symbol: string }; category: { name: string }; inventory: { currentQuantity: number } | null })[]> {
+  }): Promise<(FoodItem & { unit: { name: string; symbol: string }; category: { name: string }; inventory: { currentQuantity: Prisma.Decimal } | null })[]> {
     return prisma.foodItem.findMany({
       where: input.where,
       skip: input.skip,

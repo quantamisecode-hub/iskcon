@@ -3,6 +3,8 @@ import { createCategory, deleteCategory, fetchCategories, updateCategory, type C
 import { Modal } from '../components/ui/Modal';
 import { Skeleton } from '../components/ui/Skeleton';
 import { CheckIcon, DescriptionIcon, PencilIcon, PlusIcon, SearchIcon, TagIcon, TrashIcon } from '../components/ui/icons';
+import { FieldLabel } from '../components/ui/FieldLabel';
+
 
 export function CategoriesPage() {
   const [search, setSearch] = useState('');
@@ -201,14 +203,14 @@ function CategoryFormModal({ mode, category, onClose, onSaved }: { mode: 'create
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && <div role="alert" className="rounded-xl border border-danger/25 bg-danger-soft px-4 py-2.5 text-sm text-danger">{error}</div>}
         <div>
-          <label htmlFor="cat-name" className="mb-1.5 block text-xs font-semibold text-ink">Name *</label>
+          <FieldLabel htmlFor="cat-name" className="mb-1.5 block text-xs font-semibold text-ink">Name *</FieldLabel>
           <div className="relative">
             <TagIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
             <input id="cat-name" type="text" required autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Rice & Grains" className="w-full rounded-xl border border-border-strong/70 bg-white py-2.5 pl-10 pr-3.5 text-sm outline-none focus:border-primary" />
           </div>
         </div>
         <div>
-          <label htmlFor="cat-desc" className="mb-1.5 block text-xs font-semibold text-ink">Description</label>
+          <FieldLabel htmlFor="cat-desc" className="mb-1.5 block text-xs font-semibold text-ink">Description</FieldLabel>
           <div className="relative">
             <DescriptionIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
             <input id="cat-desc" type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional" className="w-full rounded-xl border border-border-strong/70 bg-white py-2.5 pl-10 pr-3.5 text-sm outline-none focus:border-primary" />

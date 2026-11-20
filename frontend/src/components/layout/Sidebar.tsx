@@ -13,6 +13,8 @@ import {
   GridIcon,
   LayersIcon,
   PackageIcon,
+  ReturnIcon,
+  StoreIcon,
   TruckIcon,
   TagIcon,
   UserIcon,
@@ -36,7 +38,9 @@ const ICONS: Record<string, ComponentType<IconProps>> = {
   '/dishes': UtensilsIcon,
   '/inventory': BoxIcon,
   '/requests': FileTextIcon,
+  '/returns': ReturnIcon,
   '/users': UsersIcon,
+  '/vendors': StoreIcon,
   '/profile': UserIcon,
 };
 

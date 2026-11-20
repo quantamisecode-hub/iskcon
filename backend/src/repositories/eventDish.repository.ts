@@ -42,14 +42,24 @@ export const eventDishRepository = {
     return result._max.displayOrder ?? 0;
   },
 
-  async create(data: { eventId: string; dishId: string; displayOrder: number; notes?: string | null }) {
+  async create(data: {
+    eventId: string;
+    dishId: string;
+    displayOrder: number;
+    notes?: string | null;
+    quantity?: number | null;
+    quantityUnit?: string | null;
+  }) {
     return prisma.eventDish.create({
       data,
       include: { dish: true },
     });
   },
 
-  async update(id: string, data: { displayOrder?: number; notes?: string | null }) {
+  async update(
+    id: string,
+    data: { displayOrder?: number; notes?: string | null; quantity?: number | null; quantityUnit?: string | null },
+  ) {
     return prisma.eventDish.update({
       where: { id },
       data,

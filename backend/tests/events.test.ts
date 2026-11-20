@@ -100,7 +100,9 @@ afterAll(async () => {
   await prisma.dishMaterial.deleteMany({ where: { dishId: { in: createdDishIds } } });
   await prisma.event.deleteMany({ where: { id: { in: createdEventIds } } });
   await prisma.dish.deleteMany({ where: { id: { in: createdDishIds } } });
-  await prisma.inventoryTransaction.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
+  await prisma.stockAllocation.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
+    await prisma.stockLot.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
+    await prisma.inventoryTransaction.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
   await prisma.inventory.deleteMany({ where: { foodItemId: { in: createdFoodItemIds } } });
   await prisma.foodItem.deleteMany({ where: { id: { in: createdFoodItemIds } } });
   await prisma.unit.deleteMany({ where: { id: { in: createdUnitIds } } });
@@ -124,7 +126,7 @@ describe('Events - creation and scope', () => {
     const response = await request(app)
       .post('/api/v1/events')
       .set('Cookie', admin.cookie)
-      .send({ name: 'Mahaprasadam', eventDate: '2026-11-15', startTime: '10:00', endTime: '14:00', numberOfPeople: 500 });
+      .send({ name: 'Mahaprasadam', eventDate: '2026-11-15', startTime: '10:00', numberOfPeople: 500 });
 
     expect(response.status).toBe(201);
     expect(response.body.data.eventCode).toMatch(/^EVT-\d{4}-\d{6}$/);
@@ -132,7 +134,7 @@ describe('Events - creation and scope', () => {
     createdEventIds.push(response.body.data.id);
 
     const stock = await prisma.inventory.findUnique({ where: { foodItemId } });
-    expect(stock?.currentQuantity).toBe(100);
+    expect(Number(stock?.currentQuantity)).toBe(100);
     const stockOuts = await prisma.inventoryTransaction.count({ where: { foodItemId, transactionType: 'STOCK_OUT' } });
     expect(stockOuts).toBe(0);
   });
@@ -475,7 +477,7 @@ describe('Dishes and material planning (no stock deduction)', () => {
 
     // Stock unchanged, no transactions
     const stock1 = await prisma.inventory.findUnique({ where: { foodItemId } });
-    expect(stock1?.currentQuantity).toBe(100);
+    expect(Number(stock1?.currentQuantity)).toBe(100);
 
     // Update 25 -> 30 via the event response payload
     const materialLine = addMaterial.body.data.dishes
@@ -488,7 +490,7 @@ describe('Dishes and material planning (no stock deduction)', () => {
     expect(updateMaterial.status).toBe(200);
 
     const stock2 = await prisma.inventory.findUnique({ where: { foodItemId } });
-    expect(stock2?.currentQuantity).toBe(100);
+    expect(Number(stock2?.currentQuantity)).toBe(100);
     const transactions = await prisma.inventoryTransaction.count({ where: { foodItemId } });
     expect(transactions).toBe(0);
   });

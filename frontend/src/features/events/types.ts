@@ -43,6 +43,8 @@ export interface EventDishItem {
   dishId: string;
   displayOrder: number;
   notes: string | null;
+  quantity: number | null;
+  quantityUnit: string | null;
   dish: {
     id: string;
     name: string;
@@ -59,10 +61,17 @@ export interface EventDetail {
   description: string | null;
   eventDate: string;
   startTime: string;
-  endTime: string | null;
   numberOfPeople: number;
   location: string | null;
   notes: string | null;
+  donationAmount: number | null;
+  donationGivenBy: string | null;
+  trNumber: string | null;
+  donationType: string | null;
+  eventType: string | null;
+  servingType: string | null;
+  contactPerson: string | null;
+  mobileNumber: string | null;
   status: EventStatus;
   adminId: string;
   createdBy: string;
@@ -74,6 +83,13 @@ export interface EventDetail {
   cancellationReason?: string | null;
   cancelledAt?: string | null;
   cancelledBy?: UserRef | null;
+  /** Ready-for-dispatch details (status is not changed by recording these). */
+  dispatchDestination?: string | null;
+  dispatchedAt?: string | null;
+  dispatchedById?: string | null;
+  verifiedById?: string | null;
+  verifiedBy?: UserRef | null;
+  dispatchedBy?: UserRef | null;
   dishes: EventDishItem[];
   summary: { totalDishes: number; totalMaterialLines: number };
 }
@@ -84,7 +100,6 @@ export interface EventListItem {
   name: string;
   eventDate: string;
   startTime: string;
-  endTime: string | null;
   numberOfPeople: number;
   location: string | null;
   status: EventStatus;
@@ -108,7 +123,6 @@ export interface CalendarEvent {
   name: string;
   date: string;
   startTime: string;
-  endTime: string | null;
   numberOfPeople: number;
   status: EventStatus;
   location: string | null;

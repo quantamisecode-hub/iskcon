@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../config/database.js';
 import { materialReturnRepository, type SerializedMaterialReturn } from '../repositories/materialReturn.repository.js';
 import { notificationRepository } from '../repositories/notification.repository.js';
@@ -29,7 +29,12 @@ import type { Actor } from './event.service.js';
  *
  * LOCK ORDER (deadlock-free vs. the issue path):
  *   return row -> the event's material-request rows -> inventory rows
- *   (inventory locked in ascending foodItemId order).
+ *   (inventory locked in ascending foodItemId order) -> stock-lot rows.
+ *
+ * FIFO REVERSAL RULE: accepting a return RESTORES the lots that were consumed
+ * by the original issue(s) (latest allocation first), at their original cost.
+ * It never runs a fresh FIFO allocation and never invents a price. Legacy
+ * issues made before FIFO fall back to the oldest OPENING_BALANCE lot.
  */
 
 const REVIEWABLE_STATUSES = ['PENDING_ADMIN_REVIEW'] as const;
@@ -53,6 +58,17 @@ function badRequest(message: string): ApiError {
 
 function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
+}
+
+/** One lot touched while reversing an original FIFO allocation on accept. */
+interface RestoredLotDetail {
+  stockLotId: string;
+  lotNumber: string;
+  quantityReturned: number;
+  unitCost: number | null;
+  balanceBefore: number;
+  balanceAfter: number;
+  legacyFallback: boolean;
 }
 
 /**
@@ -495,7 +511,29 @@ export const materialReturnService = {
         balances.set(foodItemId, rows[0]?.currentQuantity ?? 0);
       }
 
-      const posted: Array<{ foodItemId: string; quantity: number; balanceBefore: number; balanceAfter: number }> = [];
+      // Lock the lots backing this event's original allocations so no issue or
+      // other return can mutate their remaining quantity while we restore them.
+      // Locked after inventory and in sorted order to stay deadlock-free.
+      const lotIdsToLock = new Set<string>();
+      for (const foodItemId of foodIds) {
+        const allocations = await tx.stockAllocation.findMany({
+          where: { eventId: current.eventId, foodItemId },
+          select: { stockLotId: true },
+        });
+        for (const allocation of allocations) lotIdsToLock.add(allocation.stockLotId);
+      }
+      for (const stockLotId of [...lotIdsToLock].sort()) {
+        await tx.$queryRaw`SELECT id FROM \`StockLot\` WHERE id = ${stockLotId} FOR UPDATE`;
+      }
+
+      const posted: Array<{
+        foodItemId: string;
+        quantity: number;
+        balanceBefore: number;
+        balanceAfter: number;
+        lots: RestoredLotDetail[];
+        legacyFallback: boolean;
+      }> = [];
       const decisionByItem = new Map(decisions.map((d) => [d.itemId, d]));
       for (const itemId of [...byId.keys()].sort()) {
         const decision = decisionByItem.get(itemId);
@@ -518,30 +556,199 @@ export const materialReturnService = {
         liveReturnable.set(decision.foodItemId, round3(available - decision.acceptedQuantity));
 
         const balanceBefore = balances.get(decision.foodItemId) ?? 0;
-        const balanceAfter = round3(balanceBefore + decision.acceptedQuantity);
+        let runningBalance = balanceBefore;
+
+        // RESTORE THE ORIGINAL ALLOCATIONS — never run a fresh FIFO here.
+        // Fold both the positive (issue) and negative (earlier return reversal)
+        // allocation rows into a per-lot "still outstanding" figure so a lot is
+        // never restored twice. Lots are then visited latest-consumption first.
+        const allocations = await tx.stockAllocation.findMany({
+          where: { eventId: current.eventId, foodItemId: decision.foodItemId },
+          orderBy: { allocatedAt: 'desc' },
+          include: { stockLot: true },
+        });
+        const byLot = new Map<string, {
+          stockLotId: string;
+          lotNumber: string;
+          unitCost: number | null;
+          outstanding: number;
+          requestId: string | null;
+          latestAllocatedAt: Date;
+        }>();
+        for (const allocation of allocations) {
+          const quantity = Number(allocation.quantityAllocated);
+          const existing = byLot.get(allocation.stockLotId);
+          if (existing) {
+            existing.outstanding = round3(existing.outstanding + quantity);
+          } else {
+            byLot.set(allocation.stockLotId, {
+              stockLotId: allocation.stockLotId,
+              lotNumber: allocation.stockLot.lotNumber,
+              unitCost: allocation.stockLot.unitCost == null ? null : Number(allocation.stockLot.unitCost),
+              outstanding: quantity,
+              requestId: allocation.requestId,
+              latestAllocatedAt: allocation.allocatedAt,
+            });
+          }
+        }
+        const orderedLots = [...byLot.values()]
+          .filter((entry) => entry.outstanding > 0)
+          .sort((a, b) => b.latestAllocatedAt.getTime() - a.latestAllocatedAt.getTime());
+
+        let remainingToRestore = decision.acceptedQuantity;
+        let legacyFallback = false;
+        const restoredLots: RestoredLotDetail[] = [];
+
+        for (const entry of orderedLots) {
+          if (remainingToRestore <= 0) break;
+          const restoreQty = round3(Math.min(remainingToRestore, entry.outstanding));
+          if (restoreQty <= 0) continue;
+
+          const lot = await tx.stockLot.findUnique({ where: { id: entry.stockLotId } });
+          if (!lot) continue;
+
+          // Put the quantity back on the original lot at its ORIGINAL cost.
+          const newRemaining = new Prisma.Decimal(Number(lot.quantityRemaining)).plus(restoreQty);
+          const newStatus = lot.status === 'CONSUMED' ? 'PARTIALLY_CONSUMED' : lot.status;
+          await tx.stockLot.update({
+            where: { id: lot.id },
+            data: { quantityRemaining: newRemaining, status: newStatus },
+          });
+
+          const lotBalanceBefore = runningBalance;
+          const lotBalanceAfter = new Prisma.Decimal(runningBalance).plus(restoreQty).toDecimalPlaces(3).toNumber();
+          runningBalance = lotBalanceAfter;
+
+          const unitCost = entry.unitCost;
+          const totalCost = unitCost == null ? null : Math.round(restoreQty * unitCost * 100) / 100;
+
+          const txn = await tx.inventoryTransaction.create({
+            data: {
+              foodItemId: decision.foodItemId,
+              transactionType: 'RETURN',
+              quantity: restoreQty,
+              balanceBefore: lotBalanceBefore,
+              balanceAfter: lotBalanceAfter,
+              unitCost,
+              totalCost,
+              stockLotId: lot.id,
+              referenceType: 'MATERIAL_RETURN',
+              referenceId: current.id,
+              performedBy: user.id,
+              remarks: `Returned against ${current.returnCode}`,
+            },
+          });
+
+          // Negative StockAllocation = reversal record, traceable to the very
+          // lot that was originally consumed. Never looks like a new purchase.
+          await tx.stockAllocation.create({
+            data: {
+              stockLotId: lot.id,
+              foodItemId: decision.foodItemId,
+              transactionId: txn.id,
+              requestId: entry.requestId,
+              eventId: current.eventId,
+              quantityAllocated: new Prisma.Decimal(-restoreQty),
+              unitCost,
+              totalCost,
+              createdBy: user.id,
+            },
+          });
+
+          remainingToRestore = round3(remainingToRestore - restoreQty);
+          restoredLots.push({
+            stockLotId: lot.id,
+            lotNumber: lot.lotNumber,
+            quantityReturned: restoreQty,
+            unitCost,
+            balanceBefore: lotBalanceBefore,
+            balanceAfter: lotBalanceAfter,
+            legacyFallback: false,
+          });
+        }
+
+        // Legacy data issued before FIFO: there is no original allocation to
+        // reverse. Restock the oldest OPENING_BALANCE lot with NULL cost —
+        // never invent a price — and flag it in the audit metadata.
+        if (remainingToRestore > 0) {
+          legacyFallback = true;
+          const restoreQty = remainingToRestore;
+          const legacyLot = await tx.stockLot.findFirst({
+            where: {
+              foodItemId: decision.foodItemId,
+              referenceType: 'OPENING_BALANCE',
+              status: { not: 'CANCELLED' },
+            },
+            orderBy: [{ receivedDate: 'asc' }, { createdAt: 'asc' }],
+          });
+          if (legacyLot) {
+            const newRemaining = new Prisma.Decimal(Number(legacyLot.quantityRemaining)).plus(restoreQty);
+            const newStatus = legacyLot.status === 'CONSUMED' ? 'PARTIALLY_CONSUMED' : legacyLot.status;
+            await tx.stockLot.update({
+              where: { id: legacyLot.id },
+              data: { quantityRemaining: newRemaining, status: newStatus },
+            });
+          }
+          const lotBalanceBefore = runningBalance;
+          const lotBalanceAfter = new Prisma.Decimal(runningBalance).plus(restoreQty).toDecimalPlaces(3).toNumber();
+          runningBalance = lotBalanceAfter;
+
+          const txn = await tx.inventoryTransaction.create({
+            data: {
+              foodItemId: decision.foodItemId,
+              transactionType: 'RETURN',
+              quantity: restoreQty,
+              balanceBefore: lotBalanceBefore,
+              balanceAfter: lotBalanceAfter,
+              unitCost: null,
+              totalCost: null,
+              stockLotId: legacyLot?.id ?? null,
+              referenceType: 'MATERIAL_RETURN',
+              referenceId: current.id,
+              performedBy: user.id,
+              remarks: `Returned against ${current.returnCode} (legacy restock)`,
+            },
+          });
+          if (legacyLot) {
+            await tx.stockAllocation.create({
+              data: {
+                stockLotId: legacyLot.id,
+                foodItemId: decision.foodItemId,
+                transactionId: txn.id,
+                requestId: null,
+                eventId: current.eventId,
+                quantityAllocated: new Prisma.Decimal(-restoreQty),
+                unitCost: null,
+                totalCost: null,
+                createdBy: user.id,
+              },
+            });
+          }
+          restoredLots.push({
+            stockLotId: legacyLot?.id ?? '',
+            lotNumber: legacyLot?.lotNumber ?? 'LEGACY',
+            quantityReturned: restoreQty,
+            unitCost: null,
+            balanceBefore: lotBalanceBefore,
+            balanceAfter: lotBalanceAfter,
+            legacyFallback: true,
+          });
+          remainingToRestore = 0;
+        }
+
+        // Keep the authoritative Inventory cache in lockstep (Decimal-safe).
         await tx.inventory.update({
           where: { foodItemId: decision.foodItemId },
-          data: { currentQuantity: balanceAfter },
+          data: { currentQuantity: new Prisma.Decimal(balanceBefore).plus(decision.acceptedQuantity) },
         });
-        await tx.inventoryTransaction.create({
-          data: {
-            foodItemId: decision.foodItemId,
-            transactionType: 'RETURN',
-            quantity: decision.acceptedQuantity,
-            balanceBefore,
-            balanceAfter,
-            referenceType: 'MATERIAL_RETURN',
-            referenceId: current.id,
-            performedBy: user.id,
-            remarks: `Returned against ${current.returnCode}`,
-          },
-        });
-        balances.set(decision.foodItemId, balanceAfter);
+        balances.set(decision.foodItemId, runningBalance);
         posted.push({
           foodItemId: decision.foodItemId,
           quantity: decision.acceptedQuantity,
           balanceBefore,
-          balanceAfter,
+          balanceAfter: runningBalance,
+          lots: restoredLots,
+          legacyFallback,
         });
 
         await tx.materialReturnItem.update({
@@ -575,7 +782,7 @@ export const materialReturnService = {
         message: isPartial
           ? `Return partially accepted. Restocked: ${posted.length} line(s). Remaining requested quantities stay unresolved.`
           : `Return accepted. Restocked: ${posted.length} line(s).`,
-        metadata: { items: decisions, posted },
+        metadata: JSON.parse(JSON.stringify({ items: decisions, posted })) as Prisma.InputJsonValue,
       });
 
       await auditLogService.createAuditLog(
@@ -587,7 +794,12 @@ export const materialReturnService = {
           newValues: {
             status: newStatus,
             items: decisions,
-            restocked: posted.map((entry) => ({ foodItemId: entry.foodItemId, quantity: entry.quantity })),
+            restocked: posted.map((entry) => ({
+              foodItemId: entry.foodItemId,
+              quantity: entry.quantity,
+              lots: entry.lots,
+              legacyFallback: entry.legacyFallback,
+            })),
           },
           ipAddress: context.ipAddress,
           userAgent: context.userAgent,
@@ -595,6 +807,9 @@ export const materialReturnService = {
         tx,
       );
       if (posted.length > 0) {
+        // NOTE: AUDIT_ACTIONS.FIFO_ALLOCATION_REVERSED is not available in this
+        // build yet; reuse INVENTORY_RETURN_POSTED and carry the per-lot
+        // reversal detail (incl. quantityReturned + legacy fallback) in metadata.
         await auditLogService.createAuditLog(
           {
             userId: user.id,
@@ -608,6 +823,16 @@ export const materialReturnService = {
                 quantity: entry.quantity,
                 balanceBefore: entry.balanceBefore,
                 balanceAfter: entry.balanceAfter,
+                legacyFallback: entry.legacyFallback,
+                // Each lot restored to, in reverse consumption order, with the
+                // exact quantity returned and its original unit cost.
+                lots: entry.lots.map((lot) => ({
+                  stockLotId: lot.stockLotId,
+                  lotNumber: lot.lotNumber,
+                  quantityReturned: lot.quantityReturned,
+                  unitCost: lot.unitCost,
+                  legacyFallback: lot.legacyFallback,
+                })),
               })),
             },
             ipAddress: context.ipAddress,

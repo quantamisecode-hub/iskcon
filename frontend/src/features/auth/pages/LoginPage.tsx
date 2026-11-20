@@ -4,6 +4,8 @@ import { useAuth } from '../../../hooks/useAuth';
 import { useRedirectIfAuthenticated } from '../hooks/useRedirectIfAuthenticated';
 import { useLoginSubmit } from '../hooks/useLoginSubmit';
 import { PasswordInput } from '../components/PasswordInput';
+import { FieldLabel } from '../../../components/ui/FieldLabel';
+
 
 /**
  * Professional login screen: email, password, show/hide, validation,
@@ -51,9 +53,9 @@ export function LoginPage() {
 
         <form className="mt-8 space-y-5" onSubmit={handleSubmit} noValidate>
           <div>
-            <label htmlFor="email" className="mb-1 block text-sm font-medium text-slate-700">
+            <FieldLabel htmlFor="email" className="mb-1 block text-sm font-medium text-slate-700">
               Email
-            </label>
+            </FieldLabel>
             <input
               id="email"
               type="email"
@@ -66,9 +68,9 @@ export function LoginPage() {
           </div>
 
           <div>
-            <label htmlFor="password" className="mb-1 block text-sm font-medium text-slate-700">
+            <FieldLabel htmlFor="password" className="mb-1 block text-sm font-medium text-slate-700">
               Password
-            </label>
+            </FieldLabel>
             <PasswordInput
               id="password"
               autoComplete="current-password"

@@ -2,6 +2,7 @@
  * cPanel / LiteSpeed entry point.
  * CloudLinux cPanel Node.js selector defaults to app.js.
  */
+/* global console, process */
 import { execSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

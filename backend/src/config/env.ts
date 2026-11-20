@@ -60,8 +60,8 @@ const envSchema = z.object({
   SESSION_EXPIRES_DAYS: z.coerce.number().int().min(1).max(90).default(7),
 
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(900000),
-  RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(300),
-  AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(10),
+  RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(1000),
+  AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(60),
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });

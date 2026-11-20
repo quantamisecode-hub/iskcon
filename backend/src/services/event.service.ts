@@ -10,6 +10,7 @@ import { assignmentRepository } from '../repositories/assignment.repository.js';
 import { notificationRepository } from '../repositories/notification.repository.js';
 import { auditLogService } from './auditLog.service.js';
 import { AUDIT_ACTIONS } from '../constants/auditActions.js';
+import { IST_OFFSET_MS } from '../constants/app.js';
 import { ApiError } from '../middleware/error.middleware.js';
 import { ERROR_CODES } from '../constants/errorCodes.js';
 import { emitNotification, emitToUser, SOCKET_EVENT } from '../lib/socket.js';
@@ -108,6 +109,13 @@ function assertEditableForPlanning(event: { status: string; name?: string }) {
       message: `This event can no longer be edited while it is ${event.status}.`,
     });
   }
+}
+
+/** Event start (Asia/Kolkata wall time) expressed as an absolute instant. */
+function eventStartInstant(event: { eventDate: Date; startTime: string }): Date {
+  const [year, month, day] = serializeDateOnly(event.eventDate).split('-').map(Number);
+  const [hour, minute] = event.startTime.split(':').map(Number);
+  return new Date(Date.UTC(year ?? 1970, (month ?? 1) - 1, day ?? 1, hour ?? 0, minute ?? 0) - IST_OFFSET_MS);
 }
 
 function summaryOf(event: { dishes: { materials: unknown[] }[] }) {
@@ -248,7 +256,6 @@ export const eventService = {
         name: event.name,
         eventDate: serializeDateOnly(event.eventDate),
         startTime: event.startTime,
-        endTime: event.endTime,
         numberOfPeople: event.numberOfPeople,
         location: event.location,
         status: event.status,
@@ -277,10 +284,16 @@ export const eventService = {
     description?: string | null;
     eventDate: string;
     startTime: string;
-    endTime?: string | null;
     numberOfPeople: number;
     location?: string | null;
     notes?: string | null;
+    donationAmount?: number | null;
+    donationGivenBy?: string | null;
+    trNumber?: string | null;
+    eventType?: string | null;
+    servingType?: string | null;
+    contactPerson?: string | null;
+    mobileNumber?: string | null;
     status?: 'DRAFT' | 'PLANNING';
   }, context: { ipAddress?: string; userAgent?: string }) {
     let adminId: string;
@@ -308,10 +321,16 @@ export const eventService = {
           description: input.description ?? null,
           eventDate: toDateOnly(input.eventDate),
           startTime: input.startTime,
-          endTime: input.endTime ?? null,
           numberOfPeople: input.numberOfPeople,
           location: input.location ?? null,
           notes: input.notes ?? null,
+          donationAmount: input.donationAmount ?? null,
+          donationGivenBy: input.donationGivenBy ?? null,
+          trNumber: input.trNumber ?? null,
+          eventType: input.eventType ?? null,
+          servingType: input.servingType ?? null,
+          contactPerson: input.contactPerson ?? null,
+          mobileNumber: input.mobileNumber ?? null,
           status: input.status ?? 'DRAFT',
           adminId,
           createdBy: user.id,
@@ -328,7 +347,7 @@ export const eventService = {
       action: AUDIT_ACTIONS.CREATE_EVENT,
       entityType: 'EVENT',
       entityId: event.id,
-      newValues: { eventCode: event.eventCode, name: event.name, eventDate: input.eventDate, numberOfPeople: event.numberOfPeople, adminId },
+      newValues: { eventCode: event.eventCode, name: event.name, eventDate: input.eventDate, numberOfPeople: event.numberOfPeople, adminId, donationAmount: event.donationAmount, donationGivenBy: event.donationGivenBy, trNumber: event.trNumber },
       ipAddress: context.ipAddress,
       userAgent: context.userAgent,
     });
@@ -365,10 +384,16 @@ export const eventService = {
     description?: string | null;
     eventDate?: string;
     startTime?: string;
-    endTime?: string | null;
     numberOfPeople?: number;
     location?: string | null;
     notes?: string | null;
+    donationAmount?: number | null;
+    donationGivenBy?: string | null;
+    trNumber?: string | null;
+    eventType?: string | null;
+    servingType?: string | null;
+    contactPerson?: string | null;
+    mobileNumber?: string | null;
   }, context: { ipAddress?: string; userAgent?: string }) {
     const event = await loadEventForActor(user, id);
     assertEditableForPlanning(event);
@@ -378,20 +403,16 @@ export const eventService = {
     if (input.description !== undefined) data.description = input.description ?? null;
     if (input.eventDate !== undefined) data.eventDate = toDateOnly(input.eventDate);
     if (input.startTime !== undefined) data.startTime = input.startTime;
-    if (input.endTime !== undefined) data.endTime = input.endTime ?? null;
     if (input.numberOfPeople !== undefined) data.numberOfPeople = input.numberOfPeople;
     if (input.location !== undefined) data.location = input.location ?? null;
     if (input.notes !== undefined) data.notes = input.notes ?? null;
-
-    const effectiveStart = input.startTime ?? event.startTime;
-    const effectiveEnd = input.endTime !== undefined ? input.endTime : event.endTime;
-    if (effectiveEnd && effectiveEnd < effectiveStart) {
-      throw new ApiError({
-        statusCode: 400,
-        code: ERROR_CODES.VALIDATION_ERROR,
-        message: 'endTime must be greater than or equal to startTime.',
-      });
-    }
+    if (input.donationAmount !== undefined) data.donationAmount = input.donationAmount ?? null;
+    if (input.donationGivenBy !== undefined) data.donationGivenBy = input.donationGivenBy ?? null;
+    if (input.trNumber !== undefined) data.trNumber = input.trNumber ?? null;
+    if (input.eventType !== undefined) data.eventType = input.eventType ?? null;
+    if (input.servingType !== undefined) data.servingType = input.servingType ?? null;
+    if (input.contactPerson !== undefined) data.contactPerson = input.contactPerson ?? null;
+    if (input.mobileNumber !== undefined) data.mobileNumber = input.mobileNumber ?? null;
 
     await eventRepository.update(id, data);
 
@@ -400,7 +421,7 @@ export const eventService = {
       action: AUDIT_ACTIONS.UPDATE_EVENT,
       entityType: 'EVENT',
       entityId: id,
-      oldValues: { name: event.name, eventDate: serializeDateOnly(event.eventDate), startTime: event.startTime, endTime: event.endTime, numberOfPeople: event.numberOfPeople, location: event.location },
+      oldValues: { name: event.name, eventDate: serializeDateOnly(event.eventDate), startTime: event.startTime, numberOfPeople: event.numberOfPeople, location: event.location },
       newValues: { ...input, eventDate: input.eventDate },
       ipAddress: context.ipAddress,
       userAgent: context.userAgent,
@@ -410,7 +431,14 @@ export const eventService = {
     return updated;
   },
 
-  async changeStatus(user: Actor, id: string, status: string, context: { ipAddress?: string; userAgent?: string }, reason?: string) {
+  async changeStatus(
+    user: Actor,
+    id: string,
+    status: string,
+    context: { ipAddress?: string; userAgent?: string },
+    reason?: string,
+    donation?: { type?: string; amount?: number | null; trNumber?: string | null },
+  ) {
     // Cancellation is a lifecycle of its own (reason + cascade + notifications),
     // so PATCH /events/:id/status { CANCELLED } delegates to cancel().
     if (status === 'CANCELLED') {
@@ -426,15 +454,27 @@ export const eventService = {
       });
     }
 
-    await eventRepository.update(id, { status: status as never });
+    const updateData: Prisma.EventUpdateInput = { status: status as never };
+    if (status === 'COMPLETED' && donation?.type) {
+      if (user.role !== 'ADMIN') throw forbidden('Only an Admin can record donation details.');
+      updateData.donationType = donation.type;
+      if (donation.type === 'DONATION') {
+        if (donation.amount === undefined || donation.amount === null) {
+          throw badRequest('A donation amount is required.');
+        }
+        updateData.donationAmount = donation.amount;
+        updateData.trNumber = donation.trNumber ?? null;
+      }
+    }
+    await eventRepository.update(id, updateData);
 
     await auditLogService.createAuditLog({
       userId: user.id,
       action: status === 'CANCELLED' ? AUDIT_ACTIONS.CANCEL_EVENT : AUDIT_ACTIONS.CHANGE_EVENT_STATUS,
       entityType: 'EVENT',
       entityId: id,
-      oldValues: { status: event.status },
-      newValues: { status },
+      oldValues: { status: event.status, donationType: event.donationType },
+      newValues: { status, donationType: donation?.type ?? undefined },
       ipAddress: context.ipAddress,
       userAgent: context.userAgent,
     });
@@ -461,6 +501,107 @@ export const eventService = {
       });
     }
 
+    return eventService.getById(user, id);
+  },
+
+  /**
+   * READY FOR DISPATCH — records destination/verifier only; the status is NOT
+   * changed (Mark as Completed stays a separate step). Available to both roles.
+   */
+  async dispatch(
+    user: Actor,
+    id: string,
+    input: { destinationAddress: string; verifiedById: string },
+    context: { ipAddress?: string; userAgent?: string },
+  ) {
+    const event = await loadEventForActor(user, id);
+    if (event.status !== 'READY' && event.status !== 'COMPLETED') {
+      throw conflict(`Dispatch details can only be recorded while the event is READY or COMPLETED (currently ${event.status}).`);
+    }
+    const now = new Date();
+    if (eventStartInstant(event) < now) {
+      throw conflict('The event date and time cannot be earlier than the date and time of dispatch.');
+    }
+    const verifier = await prisma.user.findFirst({
+      where: { id: input.verifiedById, role: 'EXECUTOR', isActive: true },
+      select: { id: true, firstName: true, lastName: true },
+    });
+    if (!verifier) throw badRequest('Verified By must be an active executor.');
+
+    await eventRepository.update(id, {
+      dispatchDestination: input.destinationAddress,
+      dispatchedAt: now,
+      verifiedBy: { connect: { id: verifier.id } },
+      dispatchedBy: { connect: { id: user.id } },
+    });
+
+    await auditLogService.createAuditLog({
+      userId: user.id,
+      action: AUDIT_ACTIONS.DISPATCH_EVENT,
+      entityType: 'EVENT',
+      entityId: id,
+      oldValues: {
+        dispatchDestination: event.dispatchDestination,
+        verifiedById: event.verifiedById,
+        dispatchedAt: event.dispatchedAt,
+      },
+      newValues: { dispatchDestination: input.destinationAddress, verifiedById: verifier.id, dispatchedAt: now },
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+    });
+
+    const recipientIds = new Set<string>([event.createdBy, event.adminId]);
+    const assigned = await assignmentRepository.findManyForAdmin(event.adminId, { activeOnly: true });
+    for (const row of assigned) recipientIds.add(row.executorId);
+    recipientIds.delete(user.id);
+    await deliverEventNotifications(recipientIds, {
+      type: 'EVENT_READY_FOR_DISPATCH',
+      title: `Ready for dispatch: ${event.name}`,
+      message: `${event.name} (${event.eventCode}) has dispatch details recorded — verified by ${verifier.firstName} ${verifier.lastName}, destination: ${input.destinationAddress}.`,
+      referenceType: 'EVENT',
+      referenceId: event.id,
+      category: 'EVENT',
+      priority: 'NORMAL',
+    });
+
+    return eventService.getById(user, id);
+  },
+
+  /** Active executors assigned to the event's admin — Verified By dropdown options. */
+  async listDispatchVerifiers(user: Actor, id: string) {
+    const event = await loadEventForActor(user, id);
+    const assigned = await assignmentRepository.findManyForAdmin(event.adminId, { activeOnly: true });
+    const ids = assigned.map((row) => row.executorId);
+    if (ids.length === 0) return [];
+    const rows = await prisma.user.findMany({
+      where: { id: { in: ids }, role: 'EXECUTOR', isActive: true },
+      select: { id: true, firstName: true, lastName: true, email: true },
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+    });
+    return rows.map((row) => ({ id: row.id, firstName: row.firstName, lastName: row.lastName, email: row.email }));
+  },
+
+  /**
+   * UNDO the last lifecycle move: READY -> PLANNING, COMPLETED -> READY.
+   * Reopens a locked event for planning without deleting any history.
+   */
+  async undo(user: Actor, id: string, context: { ipAddress?: string; userAgent?: string }) {
+    const event = await loadEventForActor(user, id);
+    const target = event.status === 'READY' ? 'PLANNING' : event.status === 'COMPLETED' ? 'READY' : null;
+    if (!target) {
+      throw conflict(`This event cannot be undone while it is ${event.status}.`);
+    }
+    await eventRepository.update(id, { status: target as never });
+    await auditLogService.createAuditLog({
+      userId: user.id,
+      action: AUDIT_ACTIONS.UNDO_EVENT_STATUS,
+      entityType: 'EVENT',
+      entityId: id,
+      oldValues: { status: event.status },
+      newValues: { status: target },
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+    });
     return eventService.getById(user, id);
   },
 
@@ -760,7 +901,7 @@ export const eventService = {
         pendingIssueQuantity: Math.max(0, round3(demand.approved - demand.issued)),
         /** §39 label: "Unreturned Issued Quantity" — physical stock out there. */
         returnableQuantity: returnable,
-        availableStock: food?.inventory?.currentQuantity ?? 0,
+        availableStock: Number(food?.inventory?.currentQuantity ?? 0),
         isActive: food?.isActive ?? true,
         hasPlan: Boolean(planned),
       };
@@ -847,7 +988,12 @@ export const eventService = {
   // EVENT DISHES
   // ---------------------------------------------------------------
 
-  async addDish(user: Actor, eventId: string, input: { dishId: string; notes?: string | null; displayOrder?: number }, context: { ipAddress?: string; userAgent?: string }) {
+  async addDish(
+    user: Actor,
+    eventId: string,
+    input: { dishId: string; notes?: string | null; displayOrder?: number; quantity?: number | null; quantityUnit?: string | null },
+    context: { ipAddress?: string; userAgent?: string },
+  ) {
     const event = await loadEventForActor(user, eventId);
     assertEditableForPlanning(event);
 
@@ -878,6 +1024,8 @@ export const eventService = {
       dishId: dish.id,
       displayOrder,
       notes: input.notes ?? null,
+      quantity: input.quantity ?? null,
+      quantityUnit: input.quantityUnit ?? null,
     });
 
     await auditLogService.createAuditLog({
@@ -893,7 +1041,13 @@ export const eventService = {
     return eventService.getById(user, eventId);
   },
 
-  async updateEventDish(user: Actor, eventId: string, eventDishId: string, input: { displayOrder?: number; notes?: string | null }, context: { ipAddress?: string; userAgent?: string }) {
+  async updateEventDish(
+    user: Actor,
+    eventId: string,
+    eventDishId: string,
+    input: { displayOrder?: number; notes?: string | null; quantity?: number | null; quantityUnit?: string | null },
+    context: { ipAddress?: string; userAgent?: string },
+  ) {
     const event = await loadEventForActor(user, eventId);
     assertEditableForPlanning(event);
 
@@ -902,9 +1056,11 @@ export const eventService = {
       throw notFound('Dish not found in this event.');
     }
 
-    const data: { displayOrder?: number; notes?: string | null } = {};
+    const data: { displayOrder?: number; notes?: string | null; quantity?: number | null; quantityUnit?: string | null } = {};
     if (input.displayOrder !== undefined) data.displayOrder = input.displayOrder;
     if (input.notes !== undefined) data.notes = input.notes ?? null;
+    if (input.quantity !== undefined) data.quantity = input.quantity;
+    if (input.quantityUnit !== undefined) data.quantityUnit = input.quantityUnit;
 
     await eventDishRepository.update(eventDishId, data);
 
@@ -913,7 +1069,12 @@ export const eventService = {
       action: AUDIT_ACTIONS.UPDATE_EVENT_DISH,
       entityType: 'EVENT',
       entityId: eventId,
-      oldValues: { displayOrder: eventDish.displayOrder, notes: eventDish.notes },
+      oldValues: {
+        displayOrder: eventDish.displayOrder,
+        notes: eventDish.notes,
+        quantity: eventDish.quantity,
+        quantityUnit: eventDish.quantityUnit,
+      },
       newValues: { ...input },
       ipAddress: context.ipAddress,
       userAgent: context.userAgent,
@@ -989,7 +1150,7 @@ export const eventService = {
     const isDraft = input.isDraft === true;
     if (!isDraft) {
       const stock = await prisma.inventory.findUnique({ where: { foodItemId: food.id } });
-      const available = stock?.currentQuantity ?? 0;
+      const available = Number(stock?.currentQuantity ?? 0);
       if (available < input.plannedQuantity) {
         throw new ApiError({
           statusCode: 409,
@@ -1067,7 +1228,7 @@ export const eventService = {
       }
       const targetQty = input.plannedQuantity ?? Number(material.plannedQuantity);
       const stockRow = await prisma.inventory.findUnique({ where: { foodItemId: material.foodItemId } });
-      const available = stockRow?.currentQuantity ?? 0;
+      const available = Number(stockRow?.currentQuantity ?? 0);
       if (available < targetQty) {
         throw new ApiError({
           statusCode: 409,
@@ -1143,7 +1304,7 @@ export const eventService = {
         reorderLevel: material.foodItem.reorderLevel,
         isActive: material.foodItem.isActive,
         unit: material.foodItem.unit,
-        currentStock: material.foodItem.inventory?.currentQuantity ?? 0,
+        currentStock: Number(material.foodItem.inventory?.currentQuantity ?? 0),
       },
     }));
   },
@@ -1168,7 +1329,6 @@ export const eventService = {
       name: event.name,
       date: serializeDateOnly(event.eventDate),
       startTime: event.startTime,
-      endTime: event.endTime,
       numberOfPeople: event.numberOfPeople,
       status: event.status,
       location: event.location,
@@ -1185,10 +1345,17 @@ function serializeEvent(event: {
   description: string | null;
   eventDate: Date;
   startTime: string;
-  endTime: string | null;
   numberOfPeople: number;
   location: string | null;
   notes: string | null;
+  donationAmount?: Prisma.Decimal | number | null;
+  donationGivenBy?: string | null;
+  trNumber?: string | null;
+  donationType?: string | null;
+  eventType?: string | null;
+  servingType?: string | null;
+  contactPerson?: string | null;
+  mobileNumber?: string | null;
   status: string;
   adminId: string;
   createdBy: string;
@@ -1200,11 +1367,19 @@ function serializeEvent(event: {
   admin?: { id: string; firstName: string; lastName: string; email: string };
   creator?: { id: string; firstName: string; lastName: string; email: string };
   cancelledBy?: { id: string; firstName: string; lastName: string; email: string } | null;
+  dispatchDestination?: string | null;
+  dispatchedAt?: Date | null;
+  dispatchedById?: string | null;
+  verifiedById?: string | null;
+  verifiedBy?: { id: string; firstName: string; lastName: string; email: string } | null;
+  dispatchedBy?: { id: string; firstName: string; lastName: string; email: string } | null;
   dishes?: {
     id: string;
     dishId: string;
     displayOrder: number;
     notes: string | null;
+    quantity?: { toString(): string } | number | null;
+    quantityUnit?: string | null;
     dish: { id: string; name: string; description: string | null; isActive: boolean };
     materials: {
       id: string;
@@ -1219,7 +1394,7 @@ function serializeEvent(event: {
         reorderLevel: number;
         isActive: boolean;
         unit: { symbol: string; name: string };
-        inventory: { currentQuantity: number } | null;
+        inventory: { currentQuantity: Prisma.Decimal } | null;
       };
     }[];
   }[];
@@ -1231,14 +1406,27 @@ function serializeEvent(event: {
     description: event.description,
     eventDate: serializeDateOnly(event.eventDate),
     startTime: event.startTime,
-    endTime: event.endTime,
     numberOfPeople: event.numberOfPeople,
     location: event.location,
     notes: event.notes,
+    donationAmount: event.donationAmount !== null && event.donationAmount !== undefined ? Number(event.donationAmount) : null,
+    donationGivenBy: event.donationGivenBy ?? null,
+    trNumber: event.trNumber ?? null,
+    donationType: event.donationType ?? null,
+    eventType: event.eventType ?? null,
+    servingType: event.servingType ?? null,
+    contactPerson: event.contactPerson ?? null,
+    mobileNumber: event.mobileNumber ?? null,
     status: event.status,
     cancellationReason: event.cancellationReason ?? null,
     cancelledAt: event.cancelledAt ?? null,
     cancelledBy: event.cancelledBy ?? null,
+    dispatchDestination: event.dispatchDestination ?? null,
+    dispatchedAt: event.dispatchedAt ?? null,
+    dispatchedById: event.dispatchedById ?? null,
+    verifiedById: event.verifiedById ?? null,
+    verifiedBy: event.verifiedBy ?? null,
+    dispatchedBy: event.dispatchedBy ?? null,
     adminId: event.adminId,
     createdBy: event.createdBy,
     createdAt: event.createdAt,
@@ -1250,6 +1438,8 @@ function serializeEvent(event: {
       dishId: eventDish.dishId,
       displayOrder: eventDish.displayOrder,
       notes: eventDish.notes,
+      quantity: eventDish.quantity !== null && eventDish.quantity !== undefined ? Number(eventDish.quantity) : null,
+      quantityUnit: eventDish.quantityUnit ?? null,
       dish: eventDish.dish,
       materials: eventDish.materials.map((material) => ({
         id: material.id,
@@ -1264,7 +1454,7 @@ function serializeEvent(event: {
           reorderLevel: material.foodItem.reorderLevel,
           isActive: material.foodItem.isActive,
           unit: material.foodItem.unit,
-          currentStock: material.foodItem.inventory?.currentQuantity ?? 0,
+          currentStock: Number(material.foodItem.inventory?.currentQuantity ?? 0),
         },
       })),
     })),

@@ -1,13 +1,44 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { fetchFoodItemDetail, stockIn, stockOut, type FoodItemDetail } from '../features/inventory/api/inventory.api';
+import { fetchFoodItemDetail, fetchInventoryValuation, fetchStockLots, formatINR, stockIn, stockOut, type FoodItemDetail, type StockLotRow } from '../features/inventory/api/inventory.api';
 import { Skeleton } from '../components/ui/Skeleton';
 import { Modal } from '../components/ui/Modal';
 import { ArrowLeftIcon, TruckIcon } from '../components/ui/icons';
+import { FieldLabel } from '../components/ui/FieldLabel';
+import { useAuth } from '../hooks/useAuth';
+import { APP_CONSTANTS } from '../constants/appConstants';
+
+const QUANTITY_STEP = 10 ** -APP_CONSTANTS.quantityPrecision;
+
+const LOT_STATUS_STYLE: Record<StockLotRow['status'], string> = {
+  AVAILABLE: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  PARTIALLY_CONSUMED: 'border-amber-200 bg-amber-50 text-amber-800',
+  CONSUMED: 'border-slate-200 bg-slate-100 text-slate-600',
+  CANCELLED: 'border-red-200 bg-red-50 text-red-700',
+};
+
+const LOT_STATUS_LABEL: Record<StockLotRow['status'], string> = {
+  AVAILABLE: 'Available',
+  PARTIALLY_CONSUMED: 'Partially Consumed',
+  CONSUMED: 'Consumed',
+  CANCELLED: 'Cancelled',
+};
+
+function parseQuantity(raw: string): number | null {
+  if (raw.trim() === '') return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const factor = 10 ** APP_CONSTANTS.quantityPrecision;
+  return Math.round(value * factor) / factor;
+}
 
 export function FoodItemDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
   const [detail, setDetail] = useState<FoodItemDetail | null>(null);
+  const [lots, setLots] = useState<StockLotRow[]>([]);
+  const [lotValue, setLotValue] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stockMode, setStockMode] = useState<'in' | 'out' | null>(null);
@@ -24,6 +55,17 @@ export function FoodItemDetailPage() {
     try {
       const d = await fetchFoodItemDetail(id);
       setDetail(d);
+      if (isAdmin) {
+        fetchStockLots({ foodItemId: id, pageSize: 100 })
+          .then((page) => {
+            // Oldest-first is the natural FIFO reading order.
+            setLots([...page.lots].sort((a, b) => a.receivedDate.localeCompare(b.receivedDate)));
+          })
+          .catch(() => setLots([]));
+        fetchInventoryValuation()
+          .then((valuation) => setLotValue(valuation.byItem.find((entry) => entry.foodItemId === id)?.value ?? 0))
+          .catch(() => setLotValue(null));
+      }
     } catch {
       setError('Unable to load this food item.');
     } finally {
@@ -60,8 +102,8 @@ export function FoodItemDetailPage() {
 
   const handleStock = async () => {
     setActionError(null);
-    const q = Number.parseInt(qty, 10);
-    if (!Number.isInteger(q) || q <= 0) { setActionError('Quantity must be a positive whole number.'); return; }
+    const q = parseQuantity(qty);
+    if (q === null) { setActionError(`Quantity must be a positive number (up to ${APP_CONSTANTS.quantityPrecision} decimals).`); return; }
     if (stockMode === 'out') {
       if (q > currentQuantity) { setActionError(`Not enough stock — only ${currentQuantity} available.`); return; }
       if (!reason.trim()) { setActionError('A reason is required for Stock Out.'); return; }
@@ -190,17 +232,76 @@ export function FoodItemDetailPage() {
         </div>
       </div>
 
+      {isAdmin && (
+        <section className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-secondary">Stock Lots</h2>
+              <p className="mt-1 text-[11px] text-muted">Oldest received first — FIFO consumption order</p>
+            </div>
+            <div className="flex flex-wrap gap-6 text-right">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-secondary">Inventory Value</p>
+                <p className="mt-0.5 text-sm font-bold tabular-nums text-ink">{formatINR(lotValue)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-secondary">Active Lots</p>
+                <p className="mt-0.5 text-sm font-bold tabular-nums text-ink">{lots.filter((lot) => lot.quantityRemaining > 0).length}</p>
+              </div>
+            </div>
+          </div>
+          {lots.length === 0 ? (
+            <p className="mt-4 text-sm text-secondary">No stock lots recorded for this item yet.</p>
+          ) : (
+            <div className="mt-4 overflow-x-auto rounded-xl border border-border">
+              <table className="w-full min-w-[760px] text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-background text-left text-[10px] font-bold uppercase tracking-[0.18em] text-secondary">
+                    <th className="px-3 py-2.5">Lot</th>
+                    <th className="px-3 py-2.5">Vendor</th>
+                    <th className="px-3 py-2.5">Received</th>
+                    <th className="px-3 py-2.5 text-right">Original Qty</th>
+                    <th className="px-3 py-2.5 text-right">Remaining</th>
+                    <th className="px-3 py-2.5 text-right">Rate</th>
+                    <th className="px-3 py-2.5 text-right">Value</th>
+                    <th className="px-3 py-2.5">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lots.map((lot) => (
+                    <tr key={lot.id} className="border-b border-border/60 last:border-0 hover:bg-background/60">
+                      <td className="px-3 py-2.5 font-mono text-xs font-semibold text-ink">{lot.lotNumber}</td>
+                      <td className="px-3 py-2.5 text-secondary">{lot.vendorName ?? '—'}</td>
+                      <td className="px-3 py-2.5 text-xs tabular-nums text-secondary">{lot.receivedDate}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-secondary">{lot.quantityReceived}</td>
+                      <td className="px-3 py-2.5 text-right font-bold tabular-nums text-ink">{lot.quantityRemaining}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-secondary">{formatINR(lot.unitCost)}</td>
+                      <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-ink">{formatINR(lot.totalCost)}</td>
+                      <td className="px-3 py-2.5">
+                        <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${LOT_STATUS_STYLE[lot.status] ?? LOT_STATUS_STYLE.CONSUMED}`}>
+                          {LOT_STATUS_LABEL[lot.status] ?? lot.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
       {stockMode && (
         <Modal title={stockMode === 'in' ? 'Stock In' : 'Stock Out'} onClose={() => setStockMode(null)} maxWidthClass="max-w-md">
           <div className="space-y-4">
             <p className="text-sm text-secondary">{foodItem.name} — current stock <strong className="text-ink">{currentQuantity} {foodItem.unit?.symbol}</strong></p>
             <div>
-              <label htmlFor="detail-qty" className="mb-1.5 block text-xs font-semibold text-ink">Quantity *</label>
-              <input id="detail-qty" type="number" min={1} step={1} value={qty} onChange={(e) => setQty(e.target.value)} autoFocus placeholder="e.g. 50" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
+              <FieldLabel htmlFor="detail-qty" className="mb-1.5 block text-xs font-semibold text-ink">Quantity *</FieldLabel>
+              <input id="detail-qty" type="number" min={QUANTITY_STEP} step={QUANTITY_STEP} value={qty} onChange={(e) => setQty(e.target.value)} autoFocus placeholder="e.g. 50" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
             </div>
             {stockMode === 'out' && (
               <div>
-                <label htmlFor="detail-reason" className="mb-1.5 block text-xs font-semibold text-ink">Reason *</label>
+                <FieldLabel htmlFor="detail-reason" className="mb-1.5 block text-xs font-semibold text-ink">Reason *</FieldLabel>
                 <input id="detail-reason" type="text" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Issued to event, Used in kitchen, Damaged" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
               </div>
             )}

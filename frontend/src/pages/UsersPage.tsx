@@ -16,6 +16,8 @@ import {
 import { Modal } from '../components/ui/Modal';
 import { Skeleton } from '../components/ui/Skeleton';
 import { TrashIcon } from '../components/ui/icons';
+import { FieldLabel } from '../components/ui/FieldLabel';
+
 
 const PAGE_SIZE = 15;
 
@@ -277,26 +279,26 @@ function UserFormModal({ mode, user, onClose, onSaved }: { mode: 'create' | 'edi
         {error && <div role="alert" className="rounded-xl border border-danger/25 bg-danger-soft px-4 py-2.5 text-sm text-danger">{error}</div>}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label htmlFor="u-first" className="mb-1.5 block text-xs font-semibold text-ink">First name *</label>
+            <FieldLabel htmlFor="u-first" className="mb-1.5 block text-xs font-semibold text-ink">First name *</FieldLabel>
             <input id="u-first" type="text" required autoFocus value={firstName} onChange={(e) => setFirstName(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
           </div>
           <div>
-            <label htmlFor="u-last" className="mb-1.5 block text-xs font-semibold text-ink">Last name *</label>
+            <FieldLabel htmlFor="u-last" className="mb-1.5 block text-xs font-semibold text-ink">Last name *</FieldLabel>
             <input id="u-last" type="text" required value={lastName} onChange={(e) => setLastName(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
           </div>
         </div>
         <div>
-          <label htmlFor="u-email" className="mb-1.5 block text-xs font-semibold text-ink">Email *</label>
+          <FieldLabel htmlFor="u-email" className="mb-1.5 block text-xs font-semibold text-ink">Email *</FieldLabel>
           <input id="u-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
         </div>
         {mode === 'create' && (
           <div>
-            <label htmlFor="u-password" className="mb-1.5 block text-xs font-semibold text-ink">Password *</label>
+            <FieldLabel htmlFor="u-password" className="mb-1.5 block text-xs font-semibold text-ink">Password *</FieldLabel>
             <input id="u-password" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" placeholder="Min 8 chars · letter + digit or capital" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
           </div>
         )}
         <div>
-          <label htmlFor="u-role" className="mb-1.5 block text-xs font-semibold text-ink">Role</label>
+          <FieldLabel htmlFor="u-role" className="mb-1.5 block text-xs font-semibold text-ink">Role</FieldLabel>
           <select id="u-role" value={role} onChange={(e) => setRole(e.target.value as 'ADMIN' | 'EXECUTOR')} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary">
             <option value="EXECUTOR">EXECUTOR</option>
             <option value="ADMIN">ADMIN</option>
@@ -440,7 +442,7 @@ function AssignDialog({ executor, assignments, onClose, onDone }: { executor: Ma
         )}
 
         <div>
-          <label htmlFor="assign-admin" className="mb-1.5 block text-xs font-semibold text-ink">Assign to Admin</label>
+          <FieldLabel htmlFor="assign-admin" className="mb-1.5 block text-xs font-semibold text-ink">Assign to Admin</FieldLabel>
           <select
             id="assign-admin"
             value={selectedAdminId}

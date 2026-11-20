@@ -35,6 +35,7 @@ const ReturnDetailPage = lazy(() => import('../pages/ReturnDetailPage').then((m)
 const NotificationsPage = lazy(() => import('../pages/NotificationsPage').then((m) => ({ default: m.NotificationsPage })));
 const UsersPage = lazy(() => import('../pages/UsersPage').then((m) => ({ default: m.UsersPage })));
 const UserDetailPage = lazy(() => import('../pages/UserDetailPage').then((m) => ({ default: m.UserDetailPage })));
+const VendorsPage = lazy(() => import('../pages/VendorsPage').then((m) => ({ default: m.VendorsPage })));
 const ProfilePage = lazy(() => import('../pages/ProfilePage').then((m) => ({ default: m.ProfilePage })));
 
 export function App() {
@@ -180,6 +181,41 @@ export function App() {
               element={
                 <RoleGuard allowedRoles={['ADMIN']}>
                   <UserDetailPage />
+                </RoleGuard>
+              }
+            />
+
+            {/* Vendors — ADMIN only (including direct URLs for create/edit/detail) */}
+            <Route
+              path="/vendors"
+              element={
+                <RoleGuard allowedRoles={['ADMIN']}>
+                  <VendorsPage />
+                </RoleGuard>
+              }
+            />
+            {/* `/new` is registered before `/:id` so it is never treated as an id. */}
+            <Route
+              path="/vendors/new"
+              element={
+                <RoleGuard allowedRoles={['ADMIN']}>
+                  <VendorsPage />
+                </RoleGuard>
+              }
+            />
+            <Route
+              path="/vendors/:id/edit"
+              element={
+                <RoleGuard allowedRoles={['ADMIN']}>
+                  <VendorsPage />
+                </RoleGuard>
+              }
+            />
+            <Route
+              path="/vendors/:id"
+              element={
+                <RoleGuard allowedRoles={['ADMIN']}>
+                  <VendorsPage />
                 </RoleGuard>
               }
             />

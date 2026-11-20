@@ -55,7 +55,11 @@ model User {
   requestsApproved  MaterialRequest[] @relation("RequestApprover")
   requestTimeline   MaterialRequestTimeline[]
   eventsCancelled   Event[] @relation("EventCanceller")
+  eventsDispatched  Event[] @relation("EventDispatcher")
+  eventsVerified    Event[] @relation("EventVerifier")
   returnsRequested  MaterialReturn[] @relation("ReturnRequester")
+  stockLotsCreated  StockLot[]       @relation("StockLotCreator")
+  allocationsCreated StockAllocation[] @relation("StockAllocationCreator")
   returnsAdmin      MaterialReturn[] @relation("ReturnAdmin")
   returnTimeline    MaterialReturnTimeline[]
 
@@ -163,6 +167,32 @@ model Unit {
   returnItems    MaterialReturnItem[]
 }
 
+/// Supplier/vendor master. Names are unique; inactive vendors cannot be
+/// selected for new stock-in movements but historical ledger rows keep their
+/// vendor reference (the FK is SET NULL on delete, we soft-deactivate instead).
+model Vendor {
+  id            String   @id @default(uuid()) @db.Char(36)
+  name          String   @unique @db.VarChar(200)
+  contactPerson String?  @db.VarChar(100)
+  phone         String?  @db.VarChar(30)
+  email         String?  @db.VarChar(255)
+  address       String?  @db.VarChar(500)
+  city          String?  @db.VarChar(100)
+  state         String?  @db.VarChar(100)
+  gstNumber     String?  @db.VarChar(15)
+  paymentTerms  String?  @db.VarChar(100)
+  notes         String?  @db.Text
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  stockTransactions InventoryTransaction[]
+  stockLots         StockLot[]
+
+  @@index([isActive])
+  @@index([name])
+}
+
 /// Food Item master. Every item has a unique name, a category, a unit,
 /// minimum stock, and a reorder level.
 model FoodItem {
@@ -185,13 +215,16 @@ model FoodItem {
   eventMaterials     EventMaterial[]
   requestItems       MaterialRequestItem[]
   returnItems        MaterialReturnItem[]
+  stockLots          StockLot[]
+  stockAllocations   StockAllocation[]
 }
 
 /// Current stock level for a food item. One inventory record per food item.
 model Inventory {
   id            String    @id @default(uuid()) @db.Char(36)
   foodItemId    String    @unique @db.Char(36) // one-to-one with FoodItem
-  currentQuantity Int      @default(0)
+  /// Legacy display cache. Authoritative quantity is the sum of StockLot.quantityRemaining.
+  currentQuantity Decimal  @default(0) @db.Decimal(12, 3)
   updatedAt     DateTime  @updatedAt
 
   foodItem FoodItem @relation(fields: [foodItemId], references: [id], onDelete: Cascade)
@@ -207,20 +240,93 @@ model InventoryTransaction {
   /// practically impossible).
   idempotencyKey String?   @unique
   transactionType String    // STOCK_IN, STOCK_OUT, ADJUSTMENT, RETURN
-  quantity       Int
-  balanceBefore  Int
-  balanceAfter   Int
+  quantity       Decimal   @db.Decimal(12, 3)
+  balanceBefore  Decimal   @db.Decimal(12, 3)
+  balanceAfter   Decimal   @db.Decimal(12, 3)
+  unitCost       Decimal?  @db.Decimal(12, 2)
+  totalCost      Decimal?  @db.Decimal(14, 2)
+  stockLotId     String?   @db.Char(36)
   referenceType  String?   // e.g. STOCK_IN, STOCK_OUT, etc.
   referenceId    String?   // ID of the originating record
   performedBy    String?   // user ID who performed the action
+  vendorId       String?   @db.Char(36)
   remarks        String?
   createdAt      DateTime  @default(now())
 
   foodItem FoodItem @relation(fields: [foodItemId], references: [id], onDelete: Cascade)
+  vendor   Vendor?  @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  stockLot StockLot? @relation(fields: [stockLotId], references: [id], onDelete: SetNull)
 
   @@index([foodItemId])
   @@index([transactionType])
+  @@index([vendorId])
   @@index([createdAt])
+  @@index([stockLotId])
+}
+
+/// FIFO lot number allocator. Lot numbers are generated server-side.
+model StockLotCodeCounter {
+  year       Int @id
+  lastNumber Int @default(0)
+}
+
+/// One acquisition of a food item. FIFO consumes these oldest-first.
+model StockLot {
+  id                String    @id @default(uuid()) @db.Char(36)
+  lotNumber         String    @unique @db.VarChar(50)
+  foodItemId        String    @db.Char(36)
+  vendorId          String?   @db.Char(36)
+  /// Null for legacy opening balance where no purchase date is known.
+  purchaseDate      DateTime? @db.Date
+  receivedDate      DateTime  @db.Date
+  quantityReceived  Decimal   @db.Decimal(12, 3)
+  quantityRemaining Decimal   @db.Decimal(12, 3)
+  /// Null means the original cost is unknown (opening balance).
+  unitCost          Decimal?  @db.Decimal(12, 2)
+  totalCost         Decimal?  @db.Decimal(14, 2)
+  /// AVAILABLE | PARTIALLY_CONSUMED | CONSUMED | CANCELLED
+  status            String    @db.VarChar(30)
+  /// STOCK_IN | OPENING_BALANCE | RETURN
+  referenceType     String?   @db.VarChar(40)
+  referenceId       String?   @db.Char(36)
+  createdBy         String?   @db.Char(36)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  foodItem FoodItem @relation(fields: [foodItemId], references: [id], onDelete: Restrict)
+  vendor   Vendor?  @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  creator  User?    @relation("StockLotCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  allocations       StockAllocation[]
+  transactions      InventoryTransaction[]
+
+  @@index([foodItemId, status, receivedDate, createdAt], name: "StockLot_fifo_idx")
+  @@index([vendorId])
+  @@index([status])
+}
+
+/// Immutable record of which lots were consumed by a movement.
+model StockAllocation {
+  id               String    @id @default(uuid()) @db.Char(36)
+  stockLotId       String    @db.Char(36)
+  foodItemId       String    @db.Char(36)
+  transactionId    String?   @db.Char(36)
+  requestId        String?   @db.Char(36)
+  eventId          String?   @db.Char(36)
+  quantityAllocated Decimal  @db.Decimal(12, 3)
+  unitCost         Decimal?  @db.Decimal(12, 2)
+  totalCost        Decimal?  @db.Decimal(14, 2)
+  allocatedAt      DateTime  @default(now())
+  createdBy        String?   @db.Char(36)
+
+  stockLot StockLot @relation(fields: [stockLotId], references: [id], onDelete: Restrict)
+  foodItem FoodItem @relation(fields: [foodItemId], references: [id], onDelete: Restrict)
+  creator  User?    @relation("StockAllocationCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([stockLotId])
+  @@index([foodItemId])
+  @@index([requestId])
+  @@index([eventId])
+  @@index([transactionId])
 }
 
 // =============================================================================
@@ -247,16 +353,31 @@ model Event {
   description    String?     @db.Text
   eventDate      DateTime    @db.Date
   startTime      String      @db.VarChar(5) // "HH:MM" 24h, Asia/Kolkata wall time
-  endTime        String?     @db.VarChar(5)
   numberOfPeople Int
   location       String?     @db.VarChar(200)
   notes          String?     @db.Text
+  donationAmount Decimal?    @db.Decimal(12, 2)
+  donationGivenBy String?    @db.VarChar(200)
+  /// Donation transaction/remittance reference (admin-only).
+  trNumber        String?    @db.VarChar(50)
+  /// Captured when the event is marked COMPLETED (admin only).
+  donationType    String?    @db.VarChar(20)
+  /// Event category + serving style + on-site contact (visible to all roles).
+  eventType      String?     @db.VarChar(50)
+  servingType    String?     @db.VarChar(20)
+  contactPerson  String?     @db.VarChar(100)
+  mobileNumber   String?     @db.VarChar(30)
   status         EventStatus @default(DRAFT)
   /// Cancellation context. Set by the cancellation lifecycle (Phase 7 extension);
   /// never null once status = CANCELLED through POST /events/:id/cancel.
   cancellationReason String? @db.Text
   cancelledAt        DateTime?
   cancelledById      String?  @db.Char(36)
+  /// Ready-for-dispatch context (details only — status is NOT changed).
+  dispatchDestination String? @db.VarChar(500)
+  dispatchedAt        DateTime?
+  dispatchedById      String?  @db.Char(36)
+  verifiedById        String?  @db.Char(36)
   adminId        String      @db.Char(36)
   createdBy      String      @db.Char(36)
   createdAt      DateTime    @default(now())
@@ -265,6 +386,8 @@ model Event {
   admin   User        @relation("EventAdmin", fields: [adminId], references: [id], onDelete: Restrict)
   creator User        @relation("EventCreator", fields: [createdBy], references: [id], onDelete: Restrict)
   cancelledBy User?   @relation("EventCanceller", fields: [cancelledById], references: [id], onDelete: SetNull)
+  dispatchedBy User?  @relation("EventDispatcher", fields: [dispatchedById], references: [id], onDelete: SetNull)
+  verifiedBy   User?  @relation("EventVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
   dishes  EventDish[]
   materialRequests MaterialRequest[]
   returns MaterialReturn[]
@@ -323,6 +446,9 @@ model EventDish {
   dishId       String   @db.Char(36)
   displayOrder Int      @default(0)
   notes        String?  @db.Text
+  /// Planned quantity of this dish for the event (e.g. 50 Kg / 200 Plate).
+  quantity     Decimal?  @db.Decimal(12, 3)
+  quantityUnit String?   @db.VarChar(20)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

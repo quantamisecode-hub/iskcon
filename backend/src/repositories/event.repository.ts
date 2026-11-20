@@ -6,6 +6,8 @@ export type EventWithRelations = Prisma.EventGetPayload<{
     admin: { select: { id: true; firstName: true; lastName: true; email: true } };
     creator: { select: { id: true; firstName: true; lastName: true; email: true } };
     cancelledBy: { select: { id: true; firstName: true; lastName: true; email: true } };
+    verifiedBy: { select: { id: true; firstName: true; lastName: true; email: true } };
+    dispatchedBy: { select: { id: true; firstName: true; lastName: true; email: true } };
     dishes: {
       include: {
         dish: true;
@@ -33,6 +35,8 @@ export const eventRepository = {
         admin: { select: { id: true, firstName: true, lastName: true, email: true } },
         creator: { select: { id: true, firstName: true, lastName: true, email: true } },
         cancelledBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+        verifiedBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+        dispatchedBy: { select: { id: true, firstName: true, lastName: true, email: true } },
         dishes: {
           orderBy: { displayOrder: 'asc' },
           include: {
@@ -85,7 +89,6 @@ export const eventRepository = {
         name: true,
         eventDate: true,
         startTime: true,
-        endTime: true,
         numberOfPeople: true,
         status: true,
         location: true,
@@ -101,7 +104,6 @@ export const eventRepository = {
     description?: string | null;
     eventDate: Date;
     startTime: string;
-    endTime?: string | null;
     numberOfPeople: number;
     location?: string | null;
     notes?: string | null;
