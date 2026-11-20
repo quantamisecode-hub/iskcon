@@ -18,6 +18,7 @@ const standardOptions = {
   skip(req: Request) {
     return req.method === 'OPTIONS' || req.path.startsWith('/health');
   },
+  validate: { xForwardedForHeader: false },
   message: {
     success: false,
     error: {

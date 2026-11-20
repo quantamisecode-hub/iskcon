@@ -25,7 +25,7 @@ Copy-Item -Recurse "backend\prisma" "$deployDir\prisma"
 Copy-Item "backend\app.js" "$deployDir\"
 
 Write-Host "4. Generating clean production package.json (no devDependencies, no Windows lockfile)..." -ForegroundColor Cyan
-@'
+$pkgJson = @'
 {
   "name": "food-inventory-backend",
   "version": "0.1.0",
@@ -52,7 +52,8 @@ Write-Host "4. Generating clean production package.json (no devDependencies, no 
     "zod": "^4.1.0"
   }
 }
-'@ | Out-File -FilePath "$deployDir\package.json" -Encoding utf8
+'@
+[System.IO.File]::WriteAllText("$deployDir\package.json", $pkgJson, [System.Text.UTF8Encoding]::new($false))
 
 Write-Host "5. Copying built frontend into public directory..." -ForegroundColor Cyan
 Copy-Item -Recurse "frontend\dist\*" "$deployDir\public\"
