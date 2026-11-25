@@ -415,6 +415,21 @@ export async function fetchStockLot(id: string): Promise<StockLotDetail> {
   return response.data.data;
 }
 
+export interface UpdateStockLotPayload {
+  vendorId?: string | null;
+  stockType?: 'CHARITY' | 'EXPENSE' | null;
+  donorName?: string | null;
+  purchaseDate?: string | null;
+  receivedDate?: string;
+  unitCost?: number | null;
+  status?: StockLotStatus;
+}
+
+export async function updateStockLot(id: string, payload: UpdateStockLotPayload): Promise<StockLotRow> {
+  const response = await apiClient.patch<ApiSuccess<StockLotRow>>(stockLotPath(id), payload);
+  return response.data.data;
+}
+
 export interface FifoPreviewAllocation {
   stockLotId: string;
   lotNumber: string;

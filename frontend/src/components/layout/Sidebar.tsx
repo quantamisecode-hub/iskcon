@@ -138,7 +138,7 @@ export function Sidebar({
     }`;
 
   const navList = (isCollapsed: boolean) => (
-    <nav aria-label="Main navigation" className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
+    <nav aria-label="Main navigation" className="flex-1 space-y-1 overflow-y-auto sidebar-scroll px-3 py-4">
       {items.map((item) => {
         const Icon = ICONS[item.to] ?? GridIcon;
 
@@ -230,7 +230,7 @@ export function Sidebar({
     <div className={`flex items-center gap-3 border-b border-white/10 px-4 py-4 ${isCollapsed ? 'justify-center px-2' : ''}`}>
       <Link
         to="/dashboard"
-        aria-label="ISKCON — go to Dashboard"
+        aria-label="ISKCON Rohini — go to Dashboard"
         className={`flex items-center gap-3 rounded-2xl transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 ${
           isCollapsed ? '' : 'min-w-0'
         }`}
@@ -240,9 +240,9 @@ export function Sidebar({
         </span>
         {!isCollapsed && (
           <span className="leading-tight">
-            <span className="block text-sm font-bold tracking-[0.22em] text-[#fbf6ef]">ISKCON</span>
-            <span className="mt-0.5 block text-[9px] font-semibold uppercase tracking-wider text-[#f5e6d8]/70">
-              Food Inventory
+            <span className="block text-sm font-bold tracking-[0.16em] text-[#fbf6ef]">ISKCON</span>
+            <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-wider text-[#f5e6d8]/80">
+              Rohini
             </span>
           </span>
         )}

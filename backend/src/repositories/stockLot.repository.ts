@@ -49,6 +49,14 @@ export const stockLotRepository = {
     return prisma.stockLot.findUnique({ where: { id }, include: stockLotDetailInclude });
   },
 
+  async update(id: string, data: Prisma.StockLotUpdateInput): Promise<StockLotWithRelations> {
+    return prisma.stockLot.update({
+      where: { id },
+      data,
+      include: stockLotInclude,
+    });
+  },
+
   /** All active lots with their costs — used for inventory valuation. */
   async valuationRows(where?: Prisma.StockLotWhereInput) {
     return prisma.stockLot.findMany({

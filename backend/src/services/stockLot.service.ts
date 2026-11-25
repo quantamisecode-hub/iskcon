@@ -146,6 +146,52 @@ export const stockLotService = {
     return { ...serializeStockLot(lot), allocations: lot.allocations.map(serializeAllocation) };
   },
 
+  async update(id: string, input: {
+    vendorId?: string | null;
+    stockType?: 'CHARITY' | 'EXPENSE' | null;
+    donorName?: string | null;
+    purchaseDate?: string | null;
+    receivedDate?: string;
+    unitCost?: number | null;
+    status?: string;
+  }): Promise<StockLotRow> {
+    const existing = await stockLotRepository.findById(id);
+    if (!existing) {
+      throw new ApiError({ statusCode: 404, code: ERROR_CODES.NOT_FOUND, message: 'Stock lot not found.' });
+    }
+
+    const data: Prisma.StockLotUpdateInput = {};
+    if (input.vendorId !== undefined) {
+      data.vendor = input.vendorId ? { connect: { id: input.vendorId } } : { disconnect: true };
+    }
+    if (input.stockType !== undefined) {
+      data.stockType = input.stockType;
+      if (input.stockType !== 'CHARITY') {
+        data.donorName = null;
+      }
+    }
+    if (input.donorName !== undefined) {
+      const activeType = input.stockType !== undefined ? input.stockType : existing.stockType;
+      data.donorName = activeType === 'CHARITY' ? input.donorName : null;
+    }
+    if (input.purchaseDate !== undefined) {
+      data.purchaseDate = input.purchaseDate ? new Date(input.purchaseDate) : null;
+    }
+    if (input.receivedDate !== undefined) {
+      data.receivedDate = new Date(input.receivedDate);
+    }
+    if (input.unitCost !== undefined) {
+      data.unitCost = input.unitCost !== null ? toDecimal(input.unitCost) : null;
+      data.totalCost = input.unitCost !== null ? toDecimal(input.unitCost).times(toDecimal(existing.quantityReceived)) : null;
+    }
+    if (input.status !== undefined) {
+      data.status = input.status;
+    }
+
+    const updated = await stockLotRepository.update(id, data);
+    return serializeStockLot(updated);
+  },
+
   /** Non-mutating FIFO preview ( ADMIN-only financial data at the route layer ). */
   async preview(foodItemId: string, quantity: number): Promise<FifoPreview> {
     return previewFifoAllocation(foodItemId, quantity);

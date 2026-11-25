@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { stockLotService } from '../services/stockLot.service.js';
 import { authenticate, requireRole } from '../middleware/auth.middleware.js';
-import { validateParams, validateQuery } from '../middleware/validation.middleware.js';
+import { validateBody, validateParams, validateQuery } from '../middleware/validation.middleware.js';
 import { ROLES } from '../constants/roles.js';
 import { sendRouteError } from '../middleware/routeError.js';
 import { sendSuccess } from '../utils/apiResponse.js';
@@ -37,6 +37,18 @@ const previewQuerySchema = z
 
 const idParamsSchema = z.object({ id: z.string().uuid() }).strict();
 
+const updateStockLotSchema = z
+  .object({
+    vendorId: z.string().uuid().nullable().optional(),
+    stockType: z.enum(['CHARITY', 'EXPENSE']).nullable().optional(),
+    donorName: z.string().trim().max(200).nullable().optional(),
+    purchaseDate: z.string().nullable().optional(),
+    receivedDate: z.string().optional(),
+    unitCost: z.number().nonnegative().nullable().optional(),
+    status: z.enum(['AVAILABLE', 'PARTIALLY_CONSUMED', 'CONSUMED', 'CANCELLED']).optional(),
+  })
+  .strict();
+
 type ListQuery = z.infer<typeof listQuerySchema>;
 type PreviewQuery = z.infer<typeof previewQuerySchema>;
 
@@ -66,6 +78,23 @@ stockLotRouter.get(
       const { id } = res.locals['validatedParams'] as { id: string };
       const result = await stockLotService.getById(id);
       sendSuccess(res, result, 'Stock lot retrieved');
+    } catch (error: unknown) {
+      sendRouteError(res, error);
+    }
+  },
+);
+
+stockLotRouter.patch(
+  '/:id',
+  adminOnly,
+  validateParams(idParamsSchema),
+  validateBody(updateStockLotSchema),
+  async (_req: Request, res: Response) => {
+    try {
+      const { id } = res.locals['validatedParams'] as { id: string };
+      const body = res.locals['validatedBody'] as z.infer<typeof updateStockLotSchema>;
+      const result = await stockLotService.update(id, body);
+      sendSuccess(res, result, 'Stock lot updated successfully');
     } catch (error: unknown) {
       sendRouteError(res, error);
     }

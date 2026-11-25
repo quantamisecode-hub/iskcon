@@ -1,14 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { fetchFoodItemDetail, fetchInventoryValuation, fetchStockLots, formatINR, stockIn, stockOut, type FoodItemDetail, type StockLotRow } from '../features/inventory/api/inventory.api';
+import { fetchFoodItemDetail, fetchInventoryValuation, fetchStockLots, formatINR, type FoodItemDetail, type StockLotRow } from '../features/inventory/api/inventory.api';
 import { Skeleton } from '../components/ui/Skeleton';
-import { Modal } from '../components/ui/Modal';
-import { ArrowLeftIcon, TruckIcon } from '../components/ui/icons';
-import { FieldLabel } from '../components/ui/FieldLabel';
+import { ArrowLeftIcon, PencilIcon, TruckIcon } from '../components/ui/icons';
 import { useAuth } from '../hooks/useAuth';
 import { APP_CONSTANTS } from '../constants/appConstants';
-
-const QUANTITY_STEP = 10 ** -APP_CONSTANTS.quantityPrecision;
+import { useStockModals } from '../features/inventory/context/StockModalContext';
+import { EditStockLotModal } from '../features/inventory/components/EditStockLotModal';
 
 const LOT_STATUS_STYLE: Record<StockLotRow['status'], string> = {
   AVAILABLE: 'border-emerald-200 bg-emerald-50 text-emerald-800',
@@ -24,31 +22,18 @@ const LOT_STATUS_LABEL: Record<StockLotRow['status'], string> = {
   CANCELLED: 'Cancelled',
 };
 
-function parseQuantity(raw: string): number | null {
-  if (raw.trim() === '') return null;
-  const value = Number(raw);
-  if (!Number.isFinite(value) || value <= 0) return null;
-  const factor = 10 ** APP_CONSTANTS.quantityPrecision;
-  return Math.round(value * factor) / factor;
-}
-
 export function FoodItemDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const { openStockIn, openStockOut } = useStockModals();
+
   const [detail, setDetail] = useState<FoodItemDetail | null>(null);
   const [lots, setLots] = useState<StockLotRow[]>([]);
   const [lotValue, setLotValue] = useState<number | null>(null);
+  const [editingLot, setEditingLot] = useState<StockLotRow | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [stockMode, setStockMode] = useState<'in' | 'out' | null>(null);
-  const [qty, setQty] = useState('');
-  const [stockType, setStockType] = useState<'CHARITY' | 'EXPENSE' | ''>('');
-  const [stockDonorName, setStockDonorName] = useState('');
-  const [reason, setReason] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   const load = async () => {
     if (!id) return;
@@ -80,6 +65,13 @@ export function FoodItemDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  useEffect(() => {
+    const onRefresh = () => { void load(); };
+    window.addEventListener('inventory-refresh', onRefresh);
+    return () => window.removeEventListener('inventory-refresh', onRefresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, isAdmin]);
+
   if (isLoading) {
     return (
       <div className="space-y-6" role="status" aria-label="Loading item">
@@ -102,52 +94,12 @@ export function FoodItemDetailPage() {
 
   const { foodItem, currentQuantity, status, recentTransactions, relatedEvents, relatedRequests } = detail;
 
-  const handleStock = async () => {
-    setActionError(null);
-    const q = parseQuantity(qty);
-    if (q === null) { setActionError(`Quantity must be a positive number (up to ${APP_CONSTANTS.quantityPrecision} decimals).`); return; }
-    if (stockMode === 'out') {
-      if (q > currentQuantity) { setActionError(`Not enough stock — only ${currentQuantity} available.`); return; }
-      if (!reason.trim()) { setActionError('A reason is required for Stock Out.'); return; }
-    } else if (stockType !== 'CHARITY' && stockType !== 'EXPENSE') {
-      setActionError('Select the type of stock: Charity or Expense.');
-      return;
-    } else if (stockType === 'CHARITY' && !stockDonorName.trim()) {
-      setActionError('Enter the name of the person who donated this stock.');
-      return;
-    }
-    setBusy(true);
-    try {
-      if (stockMode === 'in') {
-        await stockIn(foodItem.id, q, null, {
-          stockType: stockType as 'CHARITY' | 'EXPENSE',
-          donorName: stockType === 'CHARITY' ? stockDonorName.trim() : null,
-        });
-        setNotice(`Stock In recorded for ${foodItem.name} (+${q} ${foodItem.unit?.symbol ?? ''}).`);
-      } else {
-        await stockOut(foodItem.id, q, { reason: reason.trim() });
-        setNotice(`Stock Out recorded for ${foodItem.name} (−${q} ${foodItem.unit?.symbol ?? ''}).`);
-      }
-      setStockMode(null);
-      setQty('');
-      setReason('');
-      await load();
-    } catch (err) {
-      const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
-      setActionError(msg ?? 'Could not record stock movement.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <div className="space-y-6">
       <Link to="/inventory/food-items" className="inline-flex items-center gap-2 text-xs font-bold text-secondary transition hover:text-primary">
         <ArrowLeftIcon className="h-4 w-4" />
         Back to Food Items
       </Link>
-
-      {notice && <div role="status" className="rounded-xl border border-[#1e7a3c]/25 bg-[#e9f7ee] px-4 py-3 text-sm font-medium text-[#145c2c]">{notice}</div>}
 
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -158,9 +110,9 @@ export function FoodItemDetailPage() {
           <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-wider ${foodItem.isActive ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-slate-100 text-slate-600'}`}>
             {foodItem.isActive ? 'Active' : 'Inactive'}
           </span>
-          <button type="button" onClick={() => { setStockMode('in'); setQty(''); setReason(''); setStockType(''); setStockDonorName(''); setActionError(null); }} className="rounded-xl bg-primary px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-primary-foreground transition hover:bg-primary-dark">+ Stock In</button>
+          <button type="button" onClick={() => openStockIn(foodItem, () => void load())} className="rounded-xl bg-primary px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-primary-foreground transition hover:bg-primary-dark">+ Stock In</button>
           {currentQuantity > 0 && (
-            <button type="button" onClick={() => { setStockMode('out'); setQty(''); setReason(''); setActionError(null); }} className="inline-flex items-center gap-1.5 rounded-xl border border-danger/40 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-danger transition hover:bg-danger-soft"><TruckIcon className="h-4 w-4" />− Stock Out</button>
+            <button type="button" onClick={() => openStockOut(foodItem, () => void load())} className="inline-flex items-center gap-1.5 rounded-xl border border-danger/40 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-danger transition hover:bg-danger-soft"><TruckIcon className="h-4 w-4" />− Stock Out</button>
           )}
         </div>
       </div>
@@ -300,6 +252,7 @@ export function FoodItemDetailPage() {
                     <th className="px-3 py-2.5 text-right">Rate</th>
                     <th className="px-3 py-2.5 text-right">Value</th>
                     <th className="px-3 py-2.5">Status</th>
+                    <th className="px-3 py-2.5 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -322,6 +275,17 @@ export function FoodItemDetailPage() {
                           {LOT_STATUS_LABEL[lot.status] ?? lot.status}
                         </span>
                       </td>
+                      <td className="px-3 py-2.5 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setEditingLot(lot)}
+                          title="Edit Stock Lot"
+                          aria-label={`Edit stock lot ${lot.lotNumber}`}
+                          className="inline-flex items-center justify-center rounded-lg border border-border-strong/60 p-1.5 text-secondary transition hover:border-primary hover:text-primary hover:bg-primary/5"
+                        >
+                          <PencilIcon className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -331,46 +295,12 @@ export function FoodItemDetailPage() {
         </section>
       )}
 
-      {stockMode && (
-        <Modal title={stockMode === 'in' ? 'Stock In' : 'Stock Out'} onClose={() => setStockMode(null)} maxWidthClass="max-w-md">
-          <div className="space-y-4">
-            <p className="text-sm text-secondary">{foodItem.name} — current stock <strong className="text-ink">{currentQuantity} {foodItem.unit?.symbol}</strong></p>
-            <div>
-              <FieldLabel htmlFor="detail-qty" className="mb-1.5 block text-xs font-semibold text-ink">Quantity *</FieldLabel>
-              <input id="detail-qty" type="number" min={QUANTITY_STEP} step={QUANTITY_STEP} value={qty} onChange={(e) => setQty(e.target.value)} autoFocus placeholder="e.g. 50" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
-            </div>
-            {stockMode === 'in' && (
-              <div>
-                <FieldLabel htmlFor="detail-stock-type" className="mb-1.5 block text-xs font-semibold text-ink">Type of Stock *</FieldLabel>
-                <select id="detail-stock-type" value={stockType} required onChange={(e) => setStockType(e.target.value as 'CHARITY' | 'EXPENSE' | '')} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25">
-                  <option value="">Select type of stock…</option>
-                  <option value="CHARITY">Charity — donation / in-kind</option>
-                  <option value="EXPENSE">Expense — purchased / organisational cost</option>
-                </select>
-              </div>
-            )}
-            {stockMode === 'in' && stockType === 'CHARITY' && (
-              <div>
-                <FieldLabel htmlFor="detail-donor" className="mb-1.5 block text-xs font-semibold text-ink">Donated by *</FieldLabel>
-                <input id="detail-donor" type="text" required maxLength={200} value={stockDonorName} onChange={(e) => setStockDonorName(e.target.value)} placeholder="Name of the person who donated" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
-              </div>
-            )}
-            {stockMode === 'out' && (
-              <div>
-                <FieldLabel htmlFor="detail-reason" className="mb-1.5 block text-xs font-semibold text-ink">Reason *</FieldLabel>
-                <input id="detail-reason" type="text" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Issued to event, Used in kitchen, Damaged" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
-              </div>
-            )}
-            {actionError && <p role="alert" className="text-xs font-semibold text-danger">{actionError}</p>}
-            <div className="flex items-center justify-end gap-3">
-              <button type="button" onClick={() => setStockMode(null)} className="rounded-xl border border-border-strong/60 px-4 py-2.5 text-sm font-semibold text-ink hover:bg-background">Cancel</button>
-              <button type="button" disabled={busy} onClick={() => void handleStock()} className={`rounded-xl px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-70 ${stockMode === 'in' ? 'bg-primary hover:bg-primary-dark' : 'bg-danger hover:bg-red-800'}`}>
-                {busy ? 'Recording…' : stockMode === 'in' ? 'Record Stock In' : 'Record Stock Out'}
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
+      <EditStockLotModal
+        lot={editingLot}
+        isOpen={!!editingLot}
+        onClose={() => setEditingLot(null)}
+        onSuccess={() => void load()}
+      />
     </div>
   );
 }
