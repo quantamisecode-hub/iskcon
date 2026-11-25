@@ -1,16 +1,43 @@
 -- =============================================================================
--- FOOD INVENTORY SYSTEM: CPANEL DATABASE MIGRATION SYNC
---
--- ANALYSIS RESULT:
--- All tables (Vendor, StockLot, StockAllocation, StockLotCodeCounter) and all
--- new columns (donationAmount, trNumber, eventType, etc.) ALREADY EXIST in your
--- database `quanusse_iskon`.
---
--- This single query marks all 9 migrations as applied in `_prisma_migrations`
--- so that Prisma stays in perfect synchronization without trying to re-add
--- existing columns.
+-- FOOD INVENTORY SYSTEM: CPANEL DATABASE MIGRATION SYNC (Up to 2026-11-25)
+-- Safe to run in phpMyAdmin on MariaDB (quanusse_iskon)
 -- =============================================================================
 
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- 1. Add `EVENT_CREATOR` role to `User` table
+ALTER TABLE `User` 
+    MODIFY `role` ENUM('ADMIN', 'EXECUTOR', 'EVENT_CREATOR') NOT NULL;
+
+-- 2. Add Stock Type (`CHARITY`, `EXPENSE`) & Donor Attribution to `StockLot`
+ALTER TABLE `StockLot`
+    ADD COLUMN IF NOT EXISTS `stockType` ENUM('CHARITY', 'EXPENSE') NULL,
+    ADD COLUMN IF NOT EXISTS `donorName` VARCHAR(200) NULL;
+
+-- 3. Create `EventExpense` table
+CREATE TABLE IF NOT EXISTS `EventExpense` (
+    `id` CHAR(36) NOT NULL,
+    `eventId` CHAR(36) NOT NULL,
+    `category` VARCHAR(50) NOT NULL,
+    `description` VARCHAR(255) NOT NULL,
+    `amount` DECIMAL(14, 2) NOT NULL,
+    `expenseDate` DATE NOT NULL,
+    `reference` VARCHAR(100) NULL,
+    `notes` TEXT NULL,
+    `createdBy` CHAR(36) NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+    INDEX `EventExpense_eventId_idx` (`eventId`),
+    INDEX `EventExpense_category_idx` (`category`),
+    INDEX `EventExpense_expenseDate_idx` (`expenseDate`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- 4. Add Foreign Keys for `EventExpense` (ignore if already added)
+ALTER TABLE `EventExpense`
+    ADD CONSTRAINT `EventExpense_eventId_fkey` FOREIGN KEY (`eventId`) REFERENCES `Event`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- 5. Sync _prisma_migrations table
 INSERT IGNORE INTO `_prisma_migrations` (`id`, `checksum`, `finished_at`, `migration_name`, `logs`, `rolled_back_at`, `started_at`, `applied_steps_count`)
 VALUES
   ('3e82f1a4-adc9-4721-99c4-d4b4fac72596', 'cf98d6244e75501d27f43f5c97d62e1b59d49caf48bdb7661a534ea7648b1dce', '2026-11-20 15:15:48.971', '20261120143800_add_donation_to_event', NULL, NULL, '2026-11-20 15:15:48.971', 1),
@@ -21,4 +48,9 @@ VALUES
   ('24ea38c2-e66b-44f5-b964-1002d82d5eb1', '9962e1a4eb6705ac3c046b46f2bf86a16095c7f5a828886cbad9a00b9b75ee2c', '2026-11-20 15:15:48.977', '20261120190000_add_event_type_and_contact', NULL, NULL, '2026-11-20 15:15:48.977', 1),
   ('d8fcdb78-3f89-4c58-a150-65ce1efad69a', '44455ad3fd2793257a2c1c90ec35f3ff826d51825551681eab360ea505b34778', '2026-11-20 15:15:48.978', '20261120195000_add_event_tr_number', NULL, NULL, '2026-11-20 15:15:48.978', 1),
   ('9d2a84d9-1000-4688-b4ae-7820899e9312', 'd325ebab64733112040e43d90e2b925e0b70ddec69942f54e19247bd929067cf', '2026-11-20 15:15:48.978', '20261120200000_add_event_donation_type', NULL, NULL, '2026-11-20 15:15:48.978', 1),
-  ('e16e7506-2fb6-4a1b-8356-bde72a1b68d4', 'be0e27b5eb0f7a714a48d471dc26448467e0fba8b73d5792aee308c611d83b5d', '2026-11-20 15:15:48.979', '20261120210000_add_fifo_stock_lots', NULL, NULL, '2026-11-20 15:15:48.979', 1);
+  ('e16e7506-2fb6-4a1b-8356-bde72a1b68d4', 'be0e27b5eb0f7a714a48d471dc26448467e0fba8b73d5792aee308c611d83b5d', '2026-11-20 15:15:48.979', '20261120210000_add_fifo_stock_lots', NULL, NULL, '2026-11-20 15:15:48.979', 1),
+  ('c490a1f2-1234-4567-89ab-202611251200', '1e2b6735a667579197bee35880cf1b179bdfdb9240e7f888ebee09f0c110dbef', '2026-11-25 14:15:00.000', '20261125120000_add_stock_type_and_event_expenses', NULL, NULL, '2026-11-25 14:15:00.000', 1),
+  ('d501b2e3-2345-5678-90bc-202611251300', 'e30676c9c32f8f256abe6674c9b4b5a53affea0de56d54b94a6b0b424227d94d', '2026-11-25 14:15:00.000', '20261125130000_add_stock_lot_donor_name', NULL, NULL, '2026-11-25 14:15:00.000', 1),
+  ('e612c3f4-3456-6789-01cd-202611251400', '1a6a45bbb617426e2d17df27788ff267f703ec492066aa0ebe8871123d095b88', '2026-11-25 14:15:00.000', '20261125140000_add_event_creator_role', NULL, NULL, '2026-11-25 14:15:00.000', 1);
+
+SET FOREIGN_KEY_CHECKS = 1;
