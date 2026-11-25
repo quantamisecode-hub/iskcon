@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { fetchAssignments, fetchUser, type AssignmentRow, type ManagedUser } from '../features/users/api/users.api';
 import { Skeleton } from '../components/ui/Skeleton';
+import { displayRole } from '../features/auth/utils/roleLabel';
 
 export function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -58,7 +59,7 @@ export function UserDetailPage() {
           <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-secondary">Account</h2>
           <dl className="mt-4 space-y-3 text-sm">
             <Row label="Email" value={user.email} />
-            <Row label="Role" value={user.role} />
+            <Row label="Role" value={displayRole(user.role)} />
             <Row label="Status" value={user.isActive ? 'Active' : 'Inactive'} />
             <Row label="Created" value={new Date(user.createdAt).toLocaleString('en-GB', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' })} />
             <Row label="Last Login" value={user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString('en-GB', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }) : 'Never'} />

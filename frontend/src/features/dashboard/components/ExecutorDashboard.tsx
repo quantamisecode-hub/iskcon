@@ -55,12 +55,6 @@ export function ExecutorDashboard({ summary }: { summary: ExecutorDashboardSumma
       <div className="flex flex-wrap items-center gap-2">
         <span className="mr-1 text-[10px] font-bold uppercase tracking-[0.2em] text-muted">Quick Actions</span>
         <Link
-          to="/events/new"
-          className="rounded-xl border border-border-strong/60 bg-card px-3.5 py-2 text-xs font-semibold text-ink transition hover:border-primary hover:text-primary"
-        >
-          + Create Event
-        </Link>
-        <Link
           to="/calendar"
           className="rounded-xl border border-border-strong/60 bg-card px-3.5 py-2 text-xs font-semibold text-ink transition hover:border-primary hover:text-primary"
         >

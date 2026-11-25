@@ -12,7 +12,7 @@ export interface AuthUserProfile {
   firstName: string;
   lastName: string;
   email: string;
-  role: 'ADMIN' | 'EXECUTOR';
+  role: 'ADMIN' | 'EXECUTOR' | 'EVENT_CREATOR';
   isActive: boolean;
   avatarUrl?: string | null;
 }

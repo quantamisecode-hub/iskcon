@@ -7,6 +7,8 @@
 export const ROLES = {
   ADMIN: 'ADMIN',
   EXECUTOR: 'EXECUTOR',
+  /** Create + view own events only. No other module access. */
+  EVENT_CREATOR: 'EVENT_CREATOR',
 } as const;
 
 export type Role = (typeof ROLES)[keyof typeof ROLES];

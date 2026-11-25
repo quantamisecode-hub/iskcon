@@ -22,6 +22,8 @@ import { ArrowRightIcon, TruckIcon } from '../components/ui/icons';
 import { FieldLabel } from '../components/ui/FieldLabel';
 import { useAuth } from '../hooks/useAuth';
 import { APP_CONSTANTS } from '../constants/appConstants';
+import { DatePicker } from '../components/ui/DatePicker';
+import { displayDateToIso, isoDateToDisplay } from '../utils/dateTime';
 
 const PAGE_SIZE = 20;
 const FIFO_DEBOUNCE_MS = 300;
@@ -76,6 +78,8 @@ export function InventoryPage() {
   const [stockInItem, setStockInItem] = useState<FoodItemRow | null>(null);
   const [stockInQty, setStockInQty] = useState('');
   const [stockInVendorId, setStockInVendorId] = useState('');
+  const [stockInType, setStockInType] = useState<'CHARITY' | 'EXPENSE' | ''>('');
+  const [stockInDonorName, setStockInDonorName] = useState('');
   const [vendors, setVendors] = useState<VendorRow[]>([]);
   const [stockInPurchaseDate, setStockInPurchaseDate] = useState('');
   const [stockInReceivedDate, setStockInReceivedDate] = useState(todayIso);
@@ -251,6 +255,8 @@ export function InventoryPage() {
 
   const resetStockInFields = () => {
     setStockInVendorId('');
+    setStockInType('');
+    setStockInDonorName('');
     setStockInPurchaseDate('');
     setStockInReceivedDate(todayIso());
     setStockInUnitCost('');
@@ -354,6 +360,14 @@ export function InventoryPage() {
       setStockInError(`Quantity must be a positive number (up to ${APP_CONSTANTS.quantityPrecision} decimals).`);
       return;
     }
+    if (stockInType !== 'CHARITY' && stockInType !== 'EXPENSE') {
+      setStockInError('Select the type of stock: Charity or Expense.');
+      return;
+    }
+    if (stockInType === 'CHARITY' && !stockInDonorName.trim()) {
+      setStockInError('Enter the name of the person who donated this stock.');
+      return;
+    }
     const unitCost = stockInUnitCost.trim() === '' ? undefined : Number(stockInUnitCost);
     if (unitCost !== undefined && (!Number.isFinite(unitCost) || unitCost < 0)) {
       setStockInError('Unit cost must be zero or a positive number.');
@@ -362,6 +376,8 @@ export function InventoryPage() {
     setIsBusy(true);
     try {
       await stockIn(stockInItem.id, qty, stockInVendorId || null, {
+        stockType: stockInType as 'CHARITY' | 'EXPENSE',
+        donorName: stockInType === 'CHARITY' ? stockInDonorName.trim() : null,
         purchaseDate: stockInPurchaseDate || undefined,
         receivedDate: stockInReceivedDate || undefined,
         unitCost,
@@ -520,6 +536,29 @@ export function InventoryPage() {
               </select>
             </div>
             <div>
+              <FieldLabel htmlFor="stock-type" className="mb-1.5 block text-xs font-semibold text-ink">Type of Stock *</FieldLabel>
+              <select id="stock-type" value={stockInType} required onChange={(e) => setStockInType(e.target.value as 'CHARITY' | 'EXPENSE' | '')} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25">
+                <option value="">Select type of stock…</option>
+                <option value="CHARITY">Charity</option>
+                <option value="EXPENSE">Expense</option>
+              </select>
+              <p className="mt-1.5 text-[10px] leading-snug text-muted">
+                {stockInType === 'CHARITY'
+                  ? APP_CONSTANTS.stockType.descriptions.CHARITY
+                  : stockInType === 'EXPENSE'
+                    ? APP_CONSTANTS.stockType.descriptions.EXPENSE
+                    : 'Charity: received as a donation / in-kind. Expense: purchased or received as an organisational cost.'}
+              </p>
+            </div>
+            {stockInType === 'CHARITY' && (
+              <div>
+                <FieldLabel htmlFor="stock-donor" className="mb-1.5 block text-xs font-semibold text-ink">Donated by *</FieldLabel>
+                <input id="stock-donor" type="text" required maxLength={200} value={stockInDonorName} onChange={(e) => setStockInDonorName(e.target.value)} placeholder="Name of the person who donated" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
+                <p className="mt-1.5 text-[10px] text-muted">Charity stock is recorded as an in-kind contribution from this donor.</p>
+              </div>
+            )}
+            {stockInType !== 'CHARITY' && (
+            <div>
               <FieldLabel htmlFor="stock-vendor" className="mb-1.5 block text-xs font-semibold text-ink">Vendor <span className="font-normal text-muted">(optional)</span></FieldLabel>
               <select id="stock-vendor" value={stockInVendorId} onChange={(e) => setStockInVendorId(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25">
                 <option value="">None</option>
@@ -529,14 +568,17 @@ export function InventoryPage() {
               </select>
               <p className="mt-1.5 text-[10px] leading-snug text-muted">Credit this delivery to a vendor — it will appear on the ledger entry.</p>
             </div>
+            )}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
-                <FieldLabel htmlFor="stock-purchase-date" className="mb-1.5 block text-xs font-semibold text-ink">Purchase Date <span className="font-normal text-muted">(optional)</span></FieldLabel>
-                <input id="stock-purchase-date" type="date" value={stockInPurchaseDate} onChange={(e) => setStockInPurchaseDate(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
+                <FieldLabel htmlFor="stock-purchase-date" className="mb-1.5 block text-xs font-semibold text-ink">
+                  {stockInType === 'CHARITY' ? 'Donation Date' : 'Purchase Date'} <span className="font-normal text-muted">(optional)</span>
+                </FieldLabel>
+                <DatePicker id="stock-purchase-date" value={isoDateToDisplay(stockInPurchaseDate)} onChange={(value) => setStockInPurchaseDate(displayDateToIso(value) ?? '')} />
               </div>
               <div>
                 <FieldLabel htmlFor="stock-received-date" className="mb-1.5 block text-xs font-semibold text-ink">Received Date *</FieldLabel>
-                <input id="stock-received-date" type="date" value={stockInReceivedDate} onChange={(e) => setStockInReceivedDate(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
+                <DatePicker id="stock-received-date" value={isoDateToDisplay(stockInReceivedDate)} onChange={(value) => setStockInReceivedDate(displayDateToIso(value) ?? '')} />
               </div>
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -555,10 +597,12 @@ export function InventoryPage() {
                 <span className="text-base font-bold tabular-nums text-ink">{formatINR(stockInTotalPreview(stockInQty, stockInUnitCost))}</span>
               </div>
             )}
-            <div>
-              <FieldLabel htmlFor="stock-reference" className="mb-1.5 block text-xs font-semibold text-ink">Reference / Invoice Number <span className="font-normal text-muted">(optional)</span></FieldLabel>
-              <input id="stock-reference" type="text" value={stockInReference} onChange={(e) => setStockInReference(e.target.value)} maxLength={100} placeholder="e.g. INV-2026-0142" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
-            </div>
+            {stockInType !== 'CHARITY' && (
+              <div>
+                <FieldLabel htmlFor="stock-reference" className="mb-1.5 block text-xs font-semibold text-ink">Reference / Invoice Number <span className="font-normal text-muted">(optional)</span></FieldLabel>
+                <input id="stock-reference" type="text" value={stockInReference} onChange={(e) => setStockInReference(e.target.value)} maxLength={100} placeholder="e.g. INV-2026-0142" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
+              </div>
+            )}
             <div>
               <FieldLabel htmlFor="stock-notes" className="mb-1.5 block text-xs font-semibold text-ink">Notes <span className="font-normal text-muted">(optional)</span></FieldLabel>
               <textarea id="stock-notes" rows={2} value={stockInNotes} onChange={(e) => setStockInNotes(e.target.value)} maxLength={500} placeholder="Delivery condition, batch remarks…" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
@@ -622,6 +666,7 @@ export function InventoryPage() {
                             <th className="px-2 py-2">Lot</th>
                             <th className="px-2 py-2">Vendor</th>
                             <th className="px-2 py-2">Received</th>
+                            <th className="px-2 py-2">Type</th>
                             <th className="px-2 py-2 text-right">Available</th>
                             <th className="px-2 py-2 text-right">Rate</th>
                             <th className="px-2 py-2 text-right">To Issue</th>
@@ -633,6 +678,11 @@ export function InventoryPage() {
                               <td className="px-2 py-2 font-mono font-semibold text-ink">{allocation.lotNumber}</td>
                               <td className="px-2 py-2 text-secondary">{allocation.vendorName ?? '—'}</td>
                               <td className="px-2 py-2 tabular-nums text-secondary">{allocation.receivedDate}</td>
+                              <td className="px-2 py-2">
+                                <span className={`inline-flex rounded-full border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${allocation.stockType === 'CHARITY' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : allocation.stockType === 'EXPENSE' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-slate-200 bg-slate-100 text-slate-600'}`}>
+                                  {allocation.stockType ? APP_CONSTANTS.stockType.labels[allocation.stockType] : 'Unclassified'}
+                                </span>
+                              </td>
                               <td className="px-2 py-2 text-right tabular-nums text-secondary">{fifoAvailableByLot[allocation.lotNumber] ?? '—'}</td>
                               <td className="px-2 py-2 text-right tabular-nums text-secondary">{formatINR(allocation.unitCost)}</td>
                               <td className="px-2 py-2 text-right font-bold tabular-nums text-ink">{allocation.quantityAllocated}</td>
@@ -655,6 +705,23 @@ export function InventoryPage() {
                         <dd className="mt-0.5 font-bold tabular-nums text-ink">{formatINR(fifoPreview.averageCost)}</dd>
                       </div>
                     </dl>
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      {(['CHARITY', 'EXPENSE'] as const).map((type) => {
+                        const rows = fifoPreview.allocations.filter((allocation) => allocation.stockType === type);
+                        const quantity = rows.reduce((sum, allocation) => sum + allocation.quantityAllocated, 0);
+                        const value = rows.reduce((sum, allocation) => sum + (allocation.totalCost ?? 0), 0);
+                        return (
+                          <div key={type} className="rounded-lg border border-border bg-card px-3 py-2">
+                            <p className="text-[9px] font-bold uppercase tracking-wider text-secondary">{APP_CONSTANTS.stockType.labels[type]} stock</p>
+                            <p className="mt-0.5 text-xs font-bold tabular-nums text-ink">{quantity} · {formatINR(value)}</p>
+                          </div>
+                        );
+                      })}
+                      <div className="rounded-lg border border-border bg-card px-3 py-2">
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-secondary">Total inventory value</p>
+                        <p className="mt-0.5 text-xs font-bold tabular-nums text-ink">{formatINR(fifoPreview.totalCost)}</p>
+                      </div>
+                    </div>
                     {!fifoPreview.sufficient && (
                       <p role="alert" className="mt-2 text-[11px] font-bold text-danger">
                         Insufficient stock — only {fifoPreview.availableQuantity} available in FIFO lots.

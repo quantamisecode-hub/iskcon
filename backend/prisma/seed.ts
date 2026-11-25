@@ -292,7 +292,6 @@ async function main(): Promise<void> {
       description: 'Development seed event — festival offering',
       eventDate: new Date('2026-11-15T00:00:00.000Z'),
       startTime: '10:00',
-      endTime: '14:00',
       numberOfPeople: 500,
       location: 'Temple Kitchen',
       notes: 'Development sample event',

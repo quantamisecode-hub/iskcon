@@ -138,7 +138,7 @@ async function createPlannedEvent(
   const addDish = await request(app)
     .post(`/api/v1/events/${eventId}/dishes`)
     .set('Cookie', adminCookie)
-    .send({ dishId: dish.body.data.id });
+    .send({ dishId: dish.body.data.id, quantity: 100 });
   expect(addDish.status).toBe(201);
   const eventDishId = addDish.body.data.dishes.at(-1).id as string;
 
@@ -314,7 +314,7 @@ describe('scoped invariant — ledger == inventory across the full stock cycle',
     const stockIn = await request(app)
       .post(`/api/v1/food-items/${foodItemId}/stock-in`)
       .set('Cookie', admin.cookie)
-      .send({ quantity: 100 });
+      .send({ quantity: 100, stockType: 'EXPENSE' });
     expect(stockIn.status).toBe(200);
     const stockAfterIn = await prisma.inventory.findUnique({ where: { foodItemId } });
     expect(Number(stockAfterIn?.currentQuantity)).toBe(100);
@@ -403,7 +403,7 @@ describe('scoped invariant — ledger == inventory across the full stock cycle',
     await request(app)
       .post(`/api/v1/food-items/${foodItemId}/stock-in`)
       .set('Cookie', admin.cookie)
-      .send({ quantity: 80 });
+      .send({ quantity: 80, stockType: 'EXPENSE' });
 
     const { eventId, eventMaterialId } = await createPlannedEvent(admin.cookie, foodItemId, unitId, 30);
     const created = await request(app)

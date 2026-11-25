@@ -1,4 +1,5 @@
 import type { Request } from 'express';
+import type { Role } from '../constants/roles.js';
 
 /**
  * Express request augmentation.
@@ -17,7 +18,7 @@ declare global {
         firstName: string;
         lastName: string;
         email: string;
-        role: 'ADMIN' | 'EXECUTOR';
+        role: Role;
         isActive: boolean;
       };
       sessionId?: string;

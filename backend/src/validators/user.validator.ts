@@ -15,7 +15,7 @@ export const createUserSchema = z
     lastName: lastNameField,
     email: emailField,
     password: z.string().min(8).max(128),
-    role: z.enum(['ADMIN', 'EXECUTOR']),
+    role: z.enum(['ADMIN', 'EXECUTOR', 'EVENT_CREATOR']),
   })
   .strict();
 
@@ -24,7 +24,7 @@ export const updateUserSchema = z
     firstName: firstNameField.optional(),
     lastName: lastNameField.optional(),
     email: emailField.optional(),
-    role: z.enum(['ADMIN', 'EXECUTOR']).optional(),
+    role: z.enum(['ADMIN', 'EXECUTOR', 'EVENT_CREATOR']).optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, { message: 'No fields to update.' });
@@ -44,7 +44,7 @@ export const resetPasswordSchema = z
 /** List filters: query string validation. */
 export const listUsersQuerySchema = z
   .object({
-    role: z.enum(['ADMIN', 'EXECUTOR']).optional(),
+    role: z.enum(['ADMIN', 'EXECUTOR', 'EVENT_CREATOR']).optional(),
     isActive: z.enum(['true', 'false']).optional().transform((v) => (v === undefined ? undefined : v === 'true')),
     search: z.string().trim().max(100).optional(),
     page: z.coerce.number().int().min(1).default(1),

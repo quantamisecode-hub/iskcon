@@ -4,6 +4,8 @@ import { useAuth } from '../../../hooks/useAuth';
 import { useRedirectIfAuthenticated } from '../hooks/useRedirectIfAuthenticated';
 import { useLoginSubmit } from '../hooks/useLoginSubmit';
 import { PasswordInput } from '../components/PasswordInput';
+import { safeTargetForRole } from '../utils/roleHome';
+import type { AuthRole } from '../../../components/routing/RoleGuard';
 import { FieldLabel } from '../../../components/ui/FieldLabel';
 
 
@@ -41,8 +43,13 @@ export function LoginPage() {
     if (!validate()) return;
 
     const target = (location.state as { from?: string } | null)?.from ?? '/dashboard';
-    const ok = await run(login, email.trim(), password);
-    if (ok) navigate(target, { replace: true });
+    let loggedInRole: AuthRole | undefined;
+    const ok = await run(async (e, p) => {
+      const profile = await login(e, p);
+      loggedInRole = profile.role;
+      return profile;
+    }, email.trim(), password);
+    if (ok) navigate(safeTargetForRole(loggedInRole, target), { replace: true });
   }
 
   return (

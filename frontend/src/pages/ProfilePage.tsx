@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import { displayRole } from '../features/auth/utils/roleLabel';
 import {
   changePasswordRequest,
   updateAvatarRequest,
@@ -262,7 +263,7 @@ export function ProfilePage() {
             <div className="mt-3 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-primary-soft/60 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-primary-deep">
                 <ShieldIcon className="h-3 w-3" />
-                {user.role}
+                {displayRole(user.role)}
               </span>
               <button
                 type="button"

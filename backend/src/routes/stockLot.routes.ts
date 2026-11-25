@@ -22,6 +22,7 @@ const listQuerySchema = z
     foodItemId: z.string().uuid().optional(),
     vendorId: z.string().uuid().optional(),
     status: z.string().max(30).optional(),
+    stockType: z.enum(['CHARITY', 'EXPENSE', 'UNCLASSIFIED']).optional(),
     page: z.coerce.number().int().min(1).default(1),
     pageSize: z.coerce.number().int().min(1).max(100).default(20),
   })

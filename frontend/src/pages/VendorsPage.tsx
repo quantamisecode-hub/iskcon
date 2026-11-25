@@ -29,14 +29,65 @@ const formatDateTime = (iso: string): string =>
     hour12: false,
   });
 
-/** JSON.stringify can throw (circular refs / BigInt) — audit rendering must never crash. */
-const safeJson = (value: unknown): string => {
-  if (value === null || value === undefined) return '—';
-  try {
-    return JSON.stringify(value, null, 2) ?? String(value);
-  } catch {
-    return String(value);
+/** Audit action codes are rendered as plain language, never as raw keys. */
+const AUDIT_ACTION_LABELS: Record<string, string> = {
+  CREATE_VENDOR: 'Vendor created',
+  UPDATE_VENDOR: 'Vendor updated',
+  ACTIVATE_VENDOR: 'Vendor activated',
+  DEACTIVATE_VENDOR: 'Vendor deactivated',
+  DELETE_VENDOR: 'Vendor deleted',
+};
+
+const AUDIT_FIELD_LABELS: Record<string, string> = {
+  id: 'ID',
+  name: 'Name',
+  contactPerson: 'Contact person',
+  phone: 'Phone',
+  email: 'Email',
+  address: 'Address',
+  city: 'City',
+  state: 'State',
+  gstNumber: 'GST number',
+  paymentTerms: 'Payment terms',
+  notes: 'Notes',
+  isActive: 'Status',
+  createdAt: 'Created',
+  updatedAt: 'Last updated',
+};
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+/** Booleans and ISO dates get a meaning; unsupported nested values are never dumped as JSON. */
+const formatAuditValue = (value: unknown): string => {
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'boolean') return value ? 'Active' : 'Inactive';
+  if (typeof value === 'number') return String(value);
+  if (typeof value === 'string') {
+    return /^\d{4}-\d{2}-\d{2}T/.test(value) ? formatDateTime(value) : value;
   }
+  return '—';
+};
+
+/** One readable "Field: before → after" line per changed field. */
+const describeAuditChanges = (
+  entry: VendorAuditEntry,
+): Array<{ label: string; before: string; after: string }> => {
+  const before = asRecord(entry.oldValues) ?? {};
+  const after = asRecord(entry.newValues) ?? {};
+  const keys = Array.from(new Set([...Object.keys(before), ...Object.keys(after)])).filter(
+    (key) =>
+      key !== 'id' &&
+      key !== 'updatedAt' &&
+      formatAuditValue(before[key]) !== formatAuditValue(after[key]),
+  );
+  return keys.map((key) => ({
+    label: AUDIT_FIELD_LABELS[key] ?? key.replace(/([a-z])([A-Z])/g, '$1 $2'),
+    before: formatAuditValue(before[key]),
+    after: formatAuditValue(after[key]),
+  }));
 };
 
 /** Server-provided message only; never surface raw network/server internals. */
@@ -153,13 +204,13 @@ export function VendorsPage() {
     setDeleteError(null);
     try {
       await deleteVendor(deleting.id);
-      setNotice(`“${deleting.name}” deactivated. Stock history is preserved.`);
+      setNotice(`“${deleting.name}” deleted.`);
       setDeleting(null);
       setDeleteError(null);
       reload();
     } catch (err) {
       // Show the reason inline inside the dialog; keep the page clean.
-      setDeleteError(extractMessage(err) ?? 'Could not deactivate vendor.');
+      setDeleteError(extractMessage(err) ?? 'Could not delete vendor.');
     } finally {
       setIsDeleting(false);
     }
@@ -171,7 +222,7 @@ export function VendorsPage() {
         <div>
           <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-primary">Inventory</p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-ink">Vendors</h1>
-          <p className="mt-1 text-sm text-secondary">Suppliers credited on stock-in. Deactivating keeps all history intact.</p>
+          <p className="mt-1 text-sm text-secondary">Suppliers credited on stock-in. Deactivate to hide temporarily, or delete permanently.</p>
         </div>
         <button type="button" onClick={() => setShowCreate(true)} className="flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground shadow-lift transition hover:bg-primary-dark"><PlusIcon className="h-4 w-4" />New Vendor</button>
       </div>
@@ -225,7 +276,7 @@ export function VendorsPage() {
                         <button type="button" onClick={() => openAudit(vendor)} title="View vendor history" className="inline-flex items-center gap-1.5 rounded-lg border border-border-strong/60 px-3 py-1.5 text-xs font-semibold text-ink hover:border-primary hover:text-primary"><ClockIcon className="h-3.5 w-3.5" />History</button>
                         <button type="button" onClick={() => setEditing(vendor)} className="inline-flex items-center gap-1.5 rounded-lg border border-border-strong/60 px-3 py-1.5 text-xs font-semibold text-ink hover:border-primary hover:text-primary"><PencilIcon className="h-3.5 w-3.5" />Edit</button>
                         <button type="button" onClick={() => void toggle(vendor)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${vendor.isActive ? 'text-danger hover:bg-danger-soft' : 'text-emerald-800 hover:bg-emerald-50'} border ${vendor.isActive ? 'border-danger/40' : 'border-emerald-300'}`}>{vendor.isActive ? 'Deactivate' : 'Activate'}</button>
-                        <button type="button" onClick={() => { setDeleteError(null); setDeleting(vendor); }} aria-label={`Deactivate ${vendor.name}`} title="Deactivate vendor (history preserved)" className="rounded-lg border border-danger/40 p-1.5 text-danger transition hover:bg-danger-soft">
+                        <button type="button" onClick={() => { setDeleteError(null); setDeleting(vendor); }} aria-label={`Delete ${vendor.name}`} title="Delete vendor permanently" className="rounded-lg border border-danger/40 p-1.5 text-danger transition hover:bg-danger-soft">
                           <TrashIcon className="h-4 w-4" />
                         </button>
                       </div>
@@ -250,7 +301,7 @@ export function VendorsPage() {
       {showCreate && <VendorFormModal mode="create" onClose={() => setShowCreate(false)} onSaved={() => { setShowCreate(false); reload(); }} />}
       {editing && <VendorFormModal mode="edit" vendor={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
       {deleting && (
-        <DeactivateVendorDialog
+        <DeleteVendorDialog
           vendor={deleting}
           isBusy={isDeleting}
           error={deleteError}
@@ -274,17 +325,17 @@ export function VendorsPage() {
   );
 }
 
-function DeactivateVendorDialog({ vendor, isBusy, error, onClose, onConfirm }: { vendor: VendorRow; isBusy: boolean; error: string | null; onClose: () => void; onConfirm: () => void }) {
+function DeleteVendorDialog({ vendor, isBusy, error, onClose, onConfirm }: { vendor: VendorRow; isBusy: boolean; error: string | null; onClose: () => void; onConfirm: () => void }) {
   return (
-    <Modal title="Deactivate Vendor?" onClose={onClose} maxWidthClass="max-w-md">
+    <Modal title="Delete Vendor?" onClose={onClose} maxWidthClass="max-w-md">
       <p className="text-sm leading-relaxed text-secondary">
-        <strong className="text-ink">{vendor.name}</strong> will be <strong className="text-danger">deactivated</strong> and hidden from the Stock In vendor list. This can be undone from the vendor list.
+        <strong className="text-ink">{vendor.name}</strong> will be <strong className="text-danger">permanently deleted</strong> from the database. This cannot be undone.
       </p>
-      <p className="mt-2 text-[11px] leading-relaxed text-muted">All stock-in history and ledger entries that reference this vendor are preserved — nothing is deleted.</p>
+      <p className="mt-2 text-[11px] leading-relaxed text-muted">Stock-in and ledger records are kept, but they will no longer show this vendor's name.</p>
       {error && <p role="alert" className="mt-3 rounded-xl border border-danger/25 bg-danger-soft px-4 py-2.5 text-sm font-semibold text-danger">{error}</p>}
       <div className="mt-5 flex items-center justify-end gap-3">
         <button type="button" onClick={onClose} className="rounded-xl border border-border-strong/60 px-4 py-2.5 text-sm font-semibold text-ink hover:bg-background">Cancel</button>
-        <button type="button" disabled={isBusy} onClick={onConfirm} className="inline-flex items-center gap-2 rounded-xl bg-danger px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-800 disabled:opacity-60"><TrashIcon className="h-4 w-4" />{isBusy ? 'Deactivating…' : 'Deactivate'}</button>
+        <button type="button" disabled={isBusy} onClick={onConfirm} className="inline-flex items-center gap-2 rounded-xl bg-danger px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-800 disabled:opacity-60"><TrashIcon className="h-4 w-4" />{isBusy ? 'Deleting…' : 'Delete'}</button>
       </div>
     </Modal>
   );
@@ -340,25 +391,41 @@ function VendorAuditModal({ vendor, entries, loading, error, onClose }: { vendor
         <p className="py-6 text-center text-sm text-secondary">No history recorded for this vendor.</p>
       ) : (
         <div className="space-y-3">
-          {entries.map((entry) => (
-            <div key={entry.id} className="rounded-xl border border-border bg-background/60 p-3.5">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <span className="inline-flex rounded-full border border-primary/20 bg-primary/5 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary">{entry.action}</span>
-                <span className="text-[11px] tabular-nums text-muted">{formatDateTime(entry.createdAt)}</span>
-              </div>
-              <p className="mt-2 text-xs text-secondary">Actor: <span className="font-semibold text-ink">{entry.actorName ?? 'System'}</span></p>
-              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted">Old values</p>
-                  <pre className="mt-1 max-h-40 overflow-auto rounded-lg bg-card p-2 text-[11px] leading-snug text-secondary">{safeJson(entry.oldValues)}</pre>
+          {entries.map((entry) => {
+            const changes = describeAuditChanges(entry);
+            const actionLabel = AUDIT_ACTION_LABELS[entry.action] ?? entry.action.replace(/_/g, ' ').toLowerCase();
+            return (
+              <div key={entry.id} className="rounded-xl border border-border bg-background/60 p-3.5">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <span className="inline-flex rounded-full border border-primary/20 bg-primary/5 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary">{actionLabel}</span>
+                  <span className="text-[11px] tabular-nums text-muted">{formatDateTime(entry.createdAt)}</span>
                 </div>
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted">New values</p>
-                  <pre className="mt-1 max-h-40 overflow-auto rounded-lg bg-card p-2 text-[11px] leading-snug text-secondary">{safeJson(entry.newValues)}</pre>
+                <p className="mt-2 text-xs text-secondary">Actor: <span className="font-semibold text-ink">{entry.actorName ?? 'System'}</span></p>
+                <div className="mt-2 rounded-lg border border-border bg-card p-2.5">
+                  {changes.length === 0 ? (
+                    <p className="text-xs text-secondary">No field changes recorded.</p>
+                  ) : (
+                    <dl className="space-y-1.5">
+                      {changes.map((change) => {
+                        const detail =
+                          change.before === '—'
+                            ? `Set to ${change.after}`
+                            : change.after === '—'
+                              ? `Was ${change.before}`
+                              : `${change.before} → ${change.after}`;
+                        return (
+                          <div key={change.label} className="flex flex-wrap items-baseline gap-x-2 text-xs">
+                            <dt className="font-semibold text-ink">{change.label}:</dt>
+                            <dd className="text-secondary">{detail}</dd>
+                          </div>
+                        );
+                      })}
+                    </dl>
+                  )}
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
       <div className="mt-5 flex justify-end">

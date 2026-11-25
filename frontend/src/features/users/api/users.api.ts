@@ -12,7 +12,7 @@ export interface ManagedUser {
   firstName: string;
   lastName: string;
   email: string;
-  role: 'ADMIN' | 'EXECUTOR';
+  role: 'ADMIN' | 'EXECUTOR' | 'EVENT_CREATOR';
   isActive: boolean;
   createdAt: string;
   lastLoginAt?: string | null;
@@ -46,7 +46,7 @@ export interface CreateUserPayload {
   lastName: string;
   email: string;
   password: string;
-  role: 'ADMIN' | 'EXECUTOR';
+  role: 'ADMIN' | 'EXECUTOR' | 'EVENT_CREATOR';
 }
 
 export async function createUser(payload: CreateUserPayload): Promise<ManagedUser> {
@@ -54,7 +54,7 @@ export async function createUser(payload: CreateUserPayload): Promise<ManagedUse
   return response.data.data.user;
 }
 
-export async function updateUser(id: string, payload: { firstName?: string; lastName?: string; email?: string; role?: 'ADMIN' | 'EXECUTOR' }): Promise<ManagedUser> {
+export async function updateUser(id: string, payload: { firstName?: string; lastName?: string; email?: string; role?: 'ADMIN' | 'EXECUTOR' | 'EVENT_CREATOR' }): Promise<ManagedUser> {
   const response = await apiClient.patch<ApiSuccess<{ user: ManagedUser }>>(`${API_ENDPOINTS.users}/${id}`, payload);
   return response.data.data.user;
 }

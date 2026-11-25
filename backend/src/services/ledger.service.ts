@@ -63,6 +63,14 @@ export const ledgerService = {
       ...(query.itemId ? { foodItemId: query.itemId } : {}),
       ...(query.type ? { transactionType: query.type } : {}),
       ...(query.userId ? { performedBy: query.userId } : {}),
+      ...(query.stockType
+        ? {
+            stockLot:
+              query.stockType === 'UNCLASSIFIED'
+                ? { stockType: null }
+                : { stockType: query.stockType },
+          }
+        : {}),
     };
 
     if (query.dateFrom || query.dateTo) {
@@ -86,7 +94,7 @@ export const ledgerService = {
             },
           },
           vendor: { select: { id: true, name: true } },
-          stockLot: { select: { lotNumber: true } },
+          stockLot: { select: { lotNumber: true, stockType: true } },
         },
       }),
       prisma.inventoryTransaction.count({ where }),
@@ -115,6 +123,7 @@ export const ledgerService = {
         totalCost: tx.totalCost === null ? null : Number(tx.totalCost),
         stockLotId: tx.stockLotId ?? null,
         lotNumber: tx.stockLot?.lotNumber ?? null,
+        stockType: tx.stockLot?.stockType ?? null,
         referenceType: tx.referenceType,
         referenceId: tx.referenceId,
         referenceLabel: referenceLabels.get(labelKey(tx)) ?? null,
@@ -135,7 +144,7 @@ export const ledgerService = {
       include: {
         foodItem: { select: { id: true, name: true, unit: { select: { symbol: true, name: true } } } },
         vendor: { select: { id: true, name: true } },
-        stockLot: { select: { lotNumber: true } },
+        stockLot: { select: { lotNumber: true, stockType: true } },
       },
     });
     if (!tx) return null;
@@ -158,6 +167,7 @@ export const ledgerService = {
       totalCost: tx.totalCost === null ? null : Number(tx.totalCost),
       stockLotId: tx.stockLotId ?? null,
       lotNumber: tx.stockLot?.lotNumber ?? null,
+      stockType: tx.stockLot?.stockType ?? null,
       referenceType: tx.referenceType,
       referenceId: tx.referenceId,
       referenceLabel: referenceLabels.get(labelKey(tx)) ?? null,

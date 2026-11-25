@@ -1,3 +1,4 @@
+import type { Role } from '../constants/roles.js';
 import type { Prisma, User } from '@prisma/client';
 import { prisma } from '../config/database.js';
 
@@ -17,7 +18,7 @@ export interface CreateUserRecord {
   lastName: string;
   email: string;
   passwordHash: string;
-  role: 'ADMIN' | 'EXECUTOR';
+  role: Role;
 }
 
 export const userRepository = {

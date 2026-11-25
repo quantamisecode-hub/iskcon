@@ -1,3 +1,4 @@
+import type { Role } from '../constants/roles.js';
 import type { NextFunction, Request, Response } from 'express';
 import { userService } from '../services/user.service.js';
 import { getAuthenticatedUser } from '../middleware/auth.middleware.js';
@@ -11,7 +12,7 @@ export const userController = {
   async list(_req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const filters = res.locals['validatedQuery'] as {
-        role?: 'ADMIN' | 'EXECUTOR';
+        role?: Role;
         isActive?: boolean;
         search?: string;
         page: number;
@@ -42,7 +43,7 @@ export const userController = {
         lastName: string;
         email: string;
         password: string;
-        role: 'ADMIN' | 'EXECUTOR';
+        role: Role;
       };
       const user = await userService.createUser(actor, body, {
         ipAddress: req.ip,
@@ -62,7 +63,7 @@ export const userController = {
         firstName?: string;
         lastName?: string;
         email?: string;
-        role?: 'ADMIN' | 'EXECUTOR';
+        role?: Role;
       };
       const user = await userService.updateUser(actor, params.id, body, {
         ipAddress: req.ip,

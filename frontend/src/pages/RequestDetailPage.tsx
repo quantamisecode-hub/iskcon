@@ -166,7 +166,7 @@ export function RequestDetailPage() {
 
   const isRequester = request.requestedById === user?.id;
   // Only an Executor raises requests; an Admin only reviews, decides and issues.
-  const canSubmit = !isAdmin && request.status === 'DRAFT' && isRequester;
+  const canSubmit = user?.role === 'EXECUTOR' && request.status === 'DRAFT' && isRequester;
   const canCancel = (request.status === 'DRAFT' || request.status === 'PENDING_APPROVAL') && (isRequester || (isAdmin && request.adminId === user?.id && request.status === 'PENDING_APPROVAL'));
   // Separation of duties: an admin can never approve/reject their own request.
   const canAct = isAdmin && request.status === 'PENDING_APPROVAL' && request.adminId === user?.id && !isRequester;

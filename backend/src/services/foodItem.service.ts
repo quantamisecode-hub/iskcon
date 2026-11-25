@@ -15,6 +15,7 @@ import { emitNotification, emitToRole, SOCKET_EVENT } from '../lib/socket.js';
 import { notificationRepository } from '../repositories/notification.repository.js';
 import { transactionWithRetry } from '../lib/dbRetry.js';
 import { logger } from '../utils/logger.js';
+import { STOCK_TYPES } from '../constants/app.js';
 
 /**
  * Persist a stock-health alert as an inbox notification for every active ADMIN
@@ -253,13 +254,18 @@ export const foodItemService = {
   async addStock(foodItemId: string, quantity: number, performedBy: string, context: { ipAddress?: string; userAgent?: string },
     referenceType?: string, referenceId?: string, idempotencyKey?: string, vendorId?: string | null,
     purchaseDate?: string | null, receivedDate?: string | null, unitCost?: number | null,
-    referenceNumber?: string | null, notes?: string | null) {
+    referenceNumber?: string | null, notes?: string | null, stockType?: (typeof STOCK_TYPES)[number],
+    donorName?: string | null) {
     const food = await foodItemRepository.findById(foodItemId);
     if (!food) {
       throw new ApiError({ statusCode: 404, code: ERROR_CODES.NOT_FOUND, message: 'Food item not found.' });
     }
     if (!Number.isFinite(quantity) || quantity <= 0) {
       throw new ApiError({ statusCode: 400, code: ERROR_CODES.VALIDATION_ERROR, message: 'Quantity must be positive.' });
+    }
+    // Defence in depth: never persist an arbitrary client string as a classification.
+    if (!stockType || !(STOCK_TYPES as readonly string[]).includes(stockType)) {
+      throw new ApiError({ statusCode: 400, code: ERROR_CODES.VALIDATION_ERROR, message: 'stockType must be CHARITY or EXPENSE.' });
     }
 
     const qty = toDecimal(quantity);
@@ -334,6 +340,8 @@ export const foodItemService = {
         receivedDate: receivedDate ?? purchaseDate ?? null,
         unitCost: cost,
         totalCost,
+        stockType,
+        donorName: stockType === 'CHARITY' ? donorName ?? null : null,
         referenceType: 'STOCK_IN',
         referenceId: transaction.id,
         createdBy: performedBy,
@@ -360,6 +368,8 @@ export const foodItemService = {
           lotNumber: result.lot?.lotNumber ?? null,
           unitCost: cost === null ? null : cost.toNumber(),
           totalCost: totalCost === null ? null : totalCost.toNumber(),
+          stockType,
+          donorName: stockType === 'CHARITY' ? donorName ?? null : null,
         },
         ipAddress: context.ipAddress,
         userAgent: context.userAgent,

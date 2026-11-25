@@ -33,6 +33,7 @@ const STATUS_LABEL: Record<MaterialRequestStatus, string> = {
 export function RequestsPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const isExecutor = user?.role === 'EXECUTOR';
   const navigate = useNavigate();
 
   const [search, setSearch] = useState('');
@@ -103,7 +104,7 @@ export function RequestsPage() {
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-ink">Material Requests</h1>
           <p className="mt-1 text-sm text-secondary">Track event material requirements and approvals.</p>
         </div>
-        {!isAdmin && (
+        {isExecutor && (
           <button
             type="button"
             onClick={() => navigate('/events')}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchUsers, type ManagedUser } from '../features/users/api/users.api';
 import { useAuth } from '../hooks/useAuth';
+import { displayRole } from '../features/auth/utils/roleLabel';
 import {
   createUser,
   fetchAssignments,
@@ -24,7 +25,7 @@ const PAGE_SIZE = 15;
 export function UsersPage() {
   const { user: currentUser } = useAuth();
   const [search, setSearch] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'' | 'ADMIN' | 'EXECUTOR'>('');
+  const [roleFilter, setRoleFilter] = useState<'' | 'ADMIN' | 'EXECUTOR' | 'EVENT_CREATOR'>('');
   const [statusFilter, setStatusFilter] = useState<'' | 'true' | 'false'>('');
   const [page, setPage] = useState(1);
   const [users, setUsers] = useState<ManagedUser[]>([]);
@@ -100,10 +101,11 @@ export function UsersPage() {
 
       <div className="grid grid-cols-1 gap-3 rounded-2xl border border-border bg-card p-4 md:grid-cols-4">
         <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or email…" aria-label="Search users" className="rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary md:col-span-2" />
-        <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as '' | 'ADMIN' | 'EXECUTOR')} aria-label="Filter by role" className="rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary">
+        <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as '' | 'ADMIN' | 'EXECUTOR' | 'EVENT_CREATOR')} aria-label="Filter by role" className="rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary">
           <option value="">All roles</option>
           <option value="ADMIN">ADMIN</option>
           <option value="EXECUTOR">EXECUTOR</option>
+          <option value="EVENT_CREATOR">Event Creator</option>
         </select>
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as '' | 'true' | 'false')} aria-label="Filter by status" className="rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary">
           <option value="">All statuses</option>
@@ -140,7 +142,7 @@ export function UsersPage() {
                     <tr key={user.id} className="border-b border-border/60 transition last:border-0 hover:bg-background/60">
                       <td className="px-4 py-3 font-semibold text-ink"><Link to={`/users/${user.id}`} className="underline-offset-2 hover:text-primary hover:underline">{user.firstName} {user.lastName}</Link></td>
                       <td className="px-4 py-3 text-secondary">{user.email}</td>
-                      <td className="px-4 py-3"><span className="rounded-full bg-primary-soft/50 px-2.5 py-1 text-[10px] font-bold tracking-wider text-primary-deep">{user.role}</span></td>
+                      <td className="px-4 py-3"><span className="rounded-full bg-primary-soft/50 px-2.5 py-1 text-[10px] font-bold tracking-wider text-primary-deep">{displayRole(user.role)}</span></td>
                       <td className="px-4 py-3 text-xs text-secondary">
                         {user.role === 'EXECUTOR' ? (assignment ? `→ ${assignment.admin.firstName} ${assignment.admin.lastName}` : 'Unassigned') : '—'}
                       </td>
@@ -229,7 +231,7 @@ function UserFormModal({ mode, user, onClose, onSaved }: { mode: 'create' | 'edi
   const [lastName, setLastName] = useState(user?.lastName ?? '');
   const [email, setEmail] = useState(user?.email ?? '');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'ADMIN' | 'EXECUTOR'>(user?.role ?? 'EXECUTOR');
+  const [role, setRole] = useState<'ADMIN' | 'EXECUTOR' | 'EVENT_CREATOR'>(user?.role ?? 'EXECUTOR');
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [resetPassword, setResetPassword] = useState('');
@@ -299,9 +301,10 @@ function UserFormModal({ mode, user, onClose, onSaved }: { mode: 'create' | 'edi
         )}
         <div>
           <FieldLabel htmlFor="u-role" className="mb-1.5 block text-xs font-semibold text-ink">Role</FieldLabel>
-          <select id="u-role" value={role} onChange={(e) => setRole(e.target.value as 'ADMIN' | 'EXECUTOR')} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary">
+          <select id="u-role" value={role} onChange={(e) => setRole(e.target.value as 'ADMIN' | 'EXECUTOR' | 'EVENT_CREATOR')} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary">
             <option value="EXECUTOR">EXECUTOR</option>
             <option value="ADMIN">ADMIN</option>
+            <option value="EVENT_CREATOR">Event Creator</option>
           </select>
         </div>
         <div className="flex items-center justify-end gap-3">

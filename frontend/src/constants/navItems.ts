@@ -20,11 +20,13 @@ export interface NavItem {
 }
 
 const ALL: readonly AuthRole[] = ['ADMIN', 'EXECUTOR'];
+/** Roles that may view events (Calendar is an event view). */
+const EVENT_VIEW: readonly AuthRole[] = ['ADMIN', 'EXECUTOR', 'EVENT_CREATOR'];
 
 export const NAV_ITEMS: readonly NavItem[] = [
   { label: 'Dashboard', to: '/dashboard', roles: ALL },
-  { label: 'Calendar', to: '/calendar', roles: ALL },
-  { label: 'Events', to: '/events', roles: ALL },
+  { label: 'Calendar', to: '/calendar', roles: EVENT_VIEW },
+  { label: 'Events', to: '/events', roles: EVENT_VIEW },
   { label: 'Dishes', to: '/dishes', roles: ['ADMIN'] },
   {
     label: 'Inventory',

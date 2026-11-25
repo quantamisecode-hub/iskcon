@@ -64,7 +64,7 @@ async function createVendor(name: string): Promise<string> {
 }
 
 async function stockIn(itemId: string, body: Record<string, unknown>): Promise<request.Response> {
-  return request(app).post(`/api/v1/food-items/${itemId}/stock-in`).set('Cookie', cookie).send(body);
+  return request(app).post(`/api/v1/food-items/${itemId}/stock-in`).set('Cookie', cookie).send({ stockType: 'EXPENSE', ...body });
 }
 
 async function stockOut(itemId: string, quantity: number, idempotencyKey?: string): Promise<request.Response> {

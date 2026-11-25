@@ -1,3 +1,4 @@
+import type { Role } from '../constants/roles.js';
 import { transactionWithRetry } from '../lib/dbRetry.js';
 import { disconnectSession, disconnectUser } from '../lib/socket.js';
 import { userRepository } from '../repositories/user.repository.js';
@@ -135,7 +136,7 @@ export const authService = {
     lastName: string;
     email: string;
     password: string;
-    role: 'ADMIN' | 'EXECUTOR';
+    role: Role;
   }): Promise<User> {
     const policy = checkPasswordPolicy(data.password);
     if (!policy.ok) {

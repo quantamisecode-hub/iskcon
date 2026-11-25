@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { APP_CONSTANTS, DISH_QUANTITY_UNITS, DONATION_TYPES, EVENT_TYPES, SERVING_TYPES } from '../constants/app.js';
+import { APP_CONSTANTS, DISH_QUANTITY_UNITS, DONATION_TYPES, EVENT_TYPES, LEGACY_EVENT_TYPES, SERVING_TYPES } from '../constants/app.js';
 
 /**
  * Shared field schemas for events, dishes, materials and calendar queries.
@@ -58,7 +58,8 @@ export const updateEventSchema = z
       .nullable(),
     donationGivenBy: z.string().trim().max(200).optional().nullable(),
     trNumber: z.string().trim().max(APP_CONSTANTS.event.donationTrNumberMaxLength).optional().nullable(),
-    eventType: z.enum(EVENT_TYPES).optional().nullable(),
+    // Legacy records created before BACE/Temple were split must remain editable.
+    eventType: z.enum([...EVENT_TYPES, ...LEGACY_EVENT_TYPES]).optional().nullable(),
     servingType: z.enum(SERVING_TYPES).optional().nullable(),
     contactPerson: z.string().trim().max(APP_CONSTANTS.event.contactPersonMaxLength).optional().nullable(),
     mobileNumber: z.string().trim().max(APP_CONSTANTS.event.mobileNumberMaxLength).optional().nullable(),

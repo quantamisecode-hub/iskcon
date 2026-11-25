@@ -95,7 +95,7 @@ async function buildIssuedStock(adminCookie: string, executorCookie: string, iss
   createdEventIds.push(eventId);
 
   await request(app).patch(`/api/v1/events/${eventId}/status`).set('Cookie', adminCookie).send({ status: 'PLANNING' });
-  const addDish = await request(app).post(`/api/v1/events/${eventId}/dishes`).set('Cookie', adminCookie).send({ dishId: dish.body.data.id });
+  const addDish = await request(app).post(`/api/v1/events/${eventId}/dishes`).set('Cookie', adminCookie).send({ dishId: dish.body.data.id, quantity: 100 });
   const eventDishId = addDish.body.data.dishes.at(-1).id as string;
   const addMaterial = await request(app).post(`/api/v1/event-dishes/${eventDishId}/materials`).set('Cookie', adminCookie).send({ foodItemId, plannedQuantity: issueQty, unitId: dish.body.data.unitId ?? undefined });
   expect(addMaterial.status).toBe(201);

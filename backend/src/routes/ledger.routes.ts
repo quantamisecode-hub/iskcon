@@ -28,6 +28,7 @@ ledgerRouter.get(
         dateFrom?: string;
         dateTo?: string;
         userId?: string;
+        stockType?: 'CHARITY' | 'EXPENSE' | 'UNCLASSIFIED';
         page: number;
         pageSize: number;
       };

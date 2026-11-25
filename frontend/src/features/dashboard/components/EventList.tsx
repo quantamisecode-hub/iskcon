@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { useAuth } from '../../../hooks/useAuth';
 import { EventStatusBadge } from '../../events/components/EventStatusBadge';
 import type { DashboardEvent } from '../api/dashboard.api';
 import { formatShortDate } from '../utils';
@@ -13,17 +14,22 @@ export function EventList({
   emptyMessage: string;
   emptyHint?: string;
 }) {
+  const { user } = useAuth();
+  const canCreate = user?.role !== 'EXECUTOR';
+
   if (events.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-6 text-center">
         <p className="text-sm font-semibold text-ink">{emptyMessage}</p>
         {emptyHint && <p className="mt-1 text-xs text-secondary">{emptyHint}</p>}
-        <Link
-          to="/events/new"
-          className="mt-4 rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground transition hover:bg-primary-dark"
-        >
-          + Create Event
-        </Link>
+        {canCreate && (
+          <Link
+            to="/events/new"
+            className="mt-4 rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground transition hover:bg-primary-dark"
+          >
+            + Create Event
+          </Link>
+        )}
       </div>
     );
   }

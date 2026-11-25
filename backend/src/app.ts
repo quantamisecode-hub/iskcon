@@ -37,6 +37,10 @@ const FRONTEND_DIST =
 export function createApp(): Express {
   const app = express();
 
+  // Trust first proxy (cPanel / LiteSpeed / Nginx / Passenger reverse proxy)
+  // Required so express-rate-limit and cookies work behind reverse proxies.
+  app.set('trust proxy', 1);
+
   attachSecurityPipeline(app);
   app.use(cookieParser());
 

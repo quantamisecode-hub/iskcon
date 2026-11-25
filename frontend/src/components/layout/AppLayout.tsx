@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { displayRole } from '../../features/auth/utils/roleLabel';
 import { useRealtimeNotifications } from '../../hooks/useRealtimeNotifications';
 import { fetchNotifications, markAllNotificationsRead, markNotificationRead, type NotificationItem } from '../../features/notifications/api/notifications.api';
 import { notificationActionLabel, notificationTarget } from '../../features/notifications/notificationTarget';
@@ -199,7 +200,7 @@ export function AppLayout() {
                     {user.firstName} {user.lastName}
                   </span>
                   <span className="text-[10px] font-semibold tracking-wider text-primary-deep">
-                    {user.role}
+                    {displayRole(user.role)}
                   </span>
                 </span>
               </Link>

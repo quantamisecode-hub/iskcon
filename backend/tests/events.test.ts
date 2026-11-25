@@ -154,19 +154,16 @@ describe('Events - creation and scope', () => {
     createdEventIds.push(first.body.data.id, second.body.data.id);
   });
 
-  it('EXECUTOR can create an event inside the assigned Admin scope', async () => {
+  it('EXECUTOR cannot create an event (create is Admin / Event Creator only)', async () => {
     const adminA = await createAdminWithSession();
-    const { user: executor, cookie } = await createExecutorAssignedTo(adminA.user);
+    const { cookie } = await createExecutorAssignedTo(adminA.user);
 
     const response = await request(app)
       .post('/api/v1/events')
       .set('Cookie', cookie)
       .send({ name: 'Executor Event', eventDate: '2026-11-20', startTime: '08:00', numberOfPeople: 200 });
 
-    expect(response.status).toBe(201);
-    expect(response.body.data.adminId).toBe(adminA.user.id);
-    expect(response.body.data.createdBy).toBe(executor.id);
-    createdEventIds.push(response.body.data.id);
+    expect(response.status).toBe(403);
   });
 
   it('unassigned EXECUTOR cannot create an event', async () => {
@@ -321,7 +318,7 @@ describe('Event lifecycle notifications (§49 realtime matrix)', () => {
     expect(await findNotification(admin.user.id, 'EVENT_CREATED', eventId)).toBeNull();
   });
 
-  it('EXECUTOR creating an event notifies the event Admin — never the actor', async () => {
+  it('EXECUTOR cannot create an event, so no event-created notification is raised', async () => {
     const admin = await createAdminWithSession();
     const { user: executor, cookie: executorCookie } = await createExecutorAssignedTo(admin.user);
 
@@ -329,12 +326,12 @@ describe('Event lifecycle notifications (§49 realtime matrix)', () => {
       .post('/api/v1/events')
       .set('Cookie', executorCookie)
       .send({ name: 'Notify Create By Executor', eventDate: '2026-11-20', startTime: '10:00', numberOfPeople: 25 });
-    expect(created.status).toBe(201);
-    const eventId = created.body.data.id;
-    createdEventIds.push(eventId);
+    expect(created.status).toBe(403);
 
-    expect(await findNotification(admin.user.id, 'EVENT_CREATED', eventId)).not.toBeNull();
-    expect(await findNotification(executor.id, 'EVENT_CREATED', eventId)).toBeNull();
+    const count = await prisma.event.count({ where: { name: 'Notify Create By Executor' } });
+    expect(count).toBe(0);
+    expect(await findNotification(admin.user.id, 'EVENT_CREATED', '')).toBeNull();
+    expect(await findNotification(executor.id, 'EVENT_CREATED', '')).toBeNull();
   });
 
   it('READY notifies the assigned EXECUTOR (actor excluded); the internal PLANNING move notifies nobody', async () => {
@@ -450,7 +447,7 @@ describe('Dishes and material planning (no stock deduction)', () => {
     const addDish = await request(app)
       .post(`/api/v1/events/${eventId}/dishes`)
       .set('Cookie', admin.cookie)
-      .send({ dishId: dish.body.data.id });
+      .send({ dishId: dish.body.data.id, quantity: 100 });
     expect(addDish.status).toBe(201);
     const eventDishId = addDish.body.data.dishes.at(-1).id;
 
@@ -458,7 +455,7 @@ describe('Dishes and material planning (no stock deduction)', () => {
     const duplicateDish = await request(app)
       .post(`/api/v1/events/${eventId}/dishes`)
       .set('Cookie', admin.cookie)
-      .send({ dishId: dish.body.data.id });
+      .send({ dishId: dish.body.data.id, quantity: 100 });
     expect(duplicateDish.status).toBe(409);
 
     // Add 25 KG material
@@ -515,7 +512,7 @@ describe('Dishes and material planning (no stock deduction)', () => {
     const addDish = await request(app)
       .post(`/api/v1/events/${eventId}/dishes`)
       .set('Cookie', admin.cookie)
-      .send({ dishId: dish.body.data.id });
+      .send({ dishId: dish.body.data.id, quantity: 100 });
     const eventDishId = addDish.body.data.dishes.at(-1).id;
 
     const zero = await request(app)
@@ -553,7 +550,7 @@ describe('Dishes and material planning (no stock deduction)', () => {
     const addDish = await request(app)
       .post(`/api/v1/events/${eventId}/dishes`)
       .set('Cookie', admin.cookie)
-      .send({ dishId: dish.body.data.id });
+      .send({ dishId: dish.body.data.id, quantity: 100 });
     const eventDishId = addDish.body.data.dishes.at(-1).id;
 
     await request(app).patch(`/api/v1/events/${eventId}/status`).set('Cookie', admin.cookie).send({ status: 'PLANNING' });

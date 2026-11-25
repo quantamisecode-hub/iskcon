@@ -20,4 +20,4 @@ export function RoleGuard({ allowedRoles, children }: { allowedRoles: AuthRole[]
   return <>{children}</>;
 }
 
-export type AuthRole = 'ADMIN' | 'EXECUTOR';
+export type AuthRole = 'ADMIN' | 'EXECUTOR' | 'EVENT_CREATOR';

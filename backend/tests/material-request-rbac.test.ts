@@ -122,7 +122,7 @@ async function createPlannedEvent(adminCookie: string): Promise<string> {
   const addDish = await request(app)
     .post(`/api/v1/events/${eventId}/dishes`)
     .set('Cookie', adminCookie)
-    .send({ dishId: dish.body.data.id });
+    .send({ dishId: dish.body.data.id, quantity: 100 });
   expect(addDish.status).toBe(201);
   const eventDishId = addDish.body.data.dishes.at(-1).id as string;
 

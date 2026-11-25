@@ -1,3 +1,4 @@
+import type { Role } from '../constants/roles.js';
 import { prisma } from '../config/database.js';
 import { userRepository } from '../repositories/user.repository.js';
 import { sessionRepository } from '../repositories/session.repository.js';
@@ -24,7 +25,7 @@ import { disconnectUser, setUserRoleRoom } from '../lib/socket.js';
  */
 
 export interface UserListFilters {
-  role?: 'ADMIN' | 'EXECUTOR';
+  role?: Role;
   isActive?: boolean;
   search?: string;
   page: number;
@@ -72,7 +73,7 @@ export const userService = {
       lastName: string;
       email: string;
       password: string;
-      role: 'ADMIN' | 'EXECUTOR';
+      role: Role;
     },
     context: { ipAddress?: string; userAgent?: string },
   ): Promise<AuthenticatedUser> {
@@ -101,7 +102,11 @@ export const userService = {
         {
           userId: actor.id,
           action:
-            input.role === 'ADMIN' ? AUDIT_ACTIONS.CREATE_ADMIN : AUDIT_ACTIONS.CREATE_EXECUTOR,
+            input.role === 'ADMIN'
+              ? AUDIT_ACTIONS.CREATE_ADMIN
+              : input.role === 'EVENT_CREATOR'
+                ? AUDIT_ACTIONS.CREATE_EVENT_CREATOR
+                : AUDIT_ACTIONS.CREATE_EXECUTOR,
           entityType: 'USER',
           entityId: user.id,
           newValues: { firstName: user.firstName, lastName: user.lastName, email: user.email, role: user.role, isActive: user.isActive },
@@ -118,7 +123,7 @@ export const userService = {
   async updateUser(
     actor: AuthenticatedUser,
     targetUserId: string,
-    patch: { firstName?: string; lastName?: string; email?: string; role?: 'ADMIN' | 'EXECUTOR' },
+    patch: { firstName?: string; lastName?: string; email?: string; role?: Role },
     context: { ipAddress?: string; userAgent?: string },
   ): Promise<AuthenticatedUser> {
     const target = await userRepository.findById(targetUserId);
@@ -153,8 +158,9 @@ export const userService = {
       ...(roleChanged ? { role: patch.role } : {}),
     };
 
-    if (roleChanged && patch.role === 'EXECUTOR') {
-      // Last-admin guard: demoting an admin may never leave the system without one.
+    if (roleChanged && patch.role !== 'ADMIN') {
+      // Last-admin guard: demoting an admin to ANY non-admin role may never
+      // leave the system without an administrator.
       await assertAdminRemains(target.id);
     }
 

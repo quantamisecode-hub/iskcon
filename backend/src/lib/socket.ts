@@ -5,6 +5,7 @@ import { logger } from '../utils/logger.js';
 import { sessionRepository } from '../repositories/session.repository.js';
 import { hashSessionToken } from '../utils/tokens.js';
 import { toSafeUser } from '../utils/safeUser.js';
+import type { Role } from '../constants/roles.js';
 
 /**
  * Socket.IO realtime layer.
@@ -40,7 +41,7 @@ export const SOCKET_EVENT = {
 type SocketData = {
   userId: string;
   sessionId: string;
-  role: 'ADMIN' | 'EXECUTOR';
+  role: Role;
 };
 
 let io: SocketIOServer | null = null;
@@ -98,7 +99,7 @@ export function initSocket(httpServer: HttpServer) {
       const safe = toSafeUser(session.user);
       socket.data.userId = safe.id;
       socket.data.sessionId = session.id;
-      socket.data.role = safe.role as 'ADMIN' | 'EXECUTOR';
+      socket.data.role = safe.role;
       next();
     } catch (err) {
       logger.error({ err }, 'Socket auth failed');
@@ -140,7 +141,7 @@ export function emitToUser(event: string, userId: string, payload: unknown) {
 }
 
 /** Emit to every member of one role room (e.g. stock alerts to all ADMINs). */
-export function emitToRole(role: 'ADMIN' | 'EXECUTOR', event: string, payload: unknown) {
+export function emitToRole(role: Role, event: string, payload: unknown) {
   if (!io) return;
   io.to(`role:${role}`).emit(event, payload);
 }
@@ -162,10 +163,10 @@ export function disconnectUser(userId: string, exceptSessionId?: string) {
 }
 
 /** Move a user's live sockets to their new role room after a role change. */
-export function setUserRoleRoom(userId: string, role: 'ADMIN' | 'EXECUTOR') {
+export function setUserRoleRoom(userId: string, role: Role) {
   if (!io) return;
   const target = io.in(`user:${userId}`);
-  target.socketsLeave(['role:ADMIN', 'role:EXECUTOR']);
+  target.socketsLeave(['role:ADMIN', 'role:EXECUTOR', 'role:EVENT_CREATOR']);
   target.socketsJoin(`role:${role}`);
 }
 

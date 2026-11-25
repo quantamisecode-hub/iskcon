@@ -130,7 +130,7 @@ async function buildIssuedMaterial(adminCookie: string, executorCookie: string) 
   const addDish = await request(app)
     .post(`/api/v1/events/${eventId}/dishes`)
     .set('Cookie', adminCookie)
-    .send({ dishId: dish.body.data.id });
+    .send({ dishId: dish.body.data.id, quantity: 100 });
   const eventDishId = addDish.body.data.dishes.at(-1).id as string;
   const addMaterial = await request(app)
     .post(`/api/v1/event-dishes/${eventDishId}/materials`)
@@ -308,7 +308,7 @@ async function buildLifecycle(
   const addDish = await request(app)
     .post(`/api/v1/events/${eventId}/dishes`)
     .set('Cookie', adminCookie)
-    .send({ dishId: dish.body.data.id });
+    .send({ dishId: dish.body.data.id, quantity: 100 });
   const eventDishId = addDish.body.data.dishes.at(-1).id as string;
   const addMaterial = await request(app)
     .post(`/api/v1/event-dishes/${eventDishId}/materials`)
@@ -690,7 +690,7 @@ describe('TC-VAL-002/004 — stock operations fail closed on bad quantities', ()
       const response = await request(app)
         .post(`/api/v1/food-items/${foodItemId}/stock-in`)
         .set('Cookie', admin.cookie)
-        .send({ quantity });
+        .send({ quantity, stockType: 'EXPENSE' });
       expect(acceptable).toContain(response.status);
       // Leak check regardless of path.
       expect(JSON.stringify(response.body)).not.toMatch(/prisma|node_modules|D:\\/i);

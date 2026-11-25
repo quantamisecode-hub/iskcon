@@ -4,13 +4,14 @@
  * Every API-facing user object is built through these helpers.
  */
 import type { User } from '@prisma/client';
+import type { Role } from '../constants/roles.js';
 
 export interface AuthenticatedUser {
   id: string;
   firstName: string;
   lastName: string;
   email: string;
-  role: 'ADMIN' | 'EXECUTOR';
+  role: Role;
   isActive: boolean;
   avatarUrl: string | null;
 }

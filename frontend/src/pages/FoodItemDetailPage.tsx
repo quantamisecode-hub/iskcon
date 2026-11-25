@@ -43,6 +43,8 @@ export function FoodItemDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [stockMode, setStockMode] = useState<'in' | 'out' | null>(null);
   const [qty, setQty] = useState('');
+  const [stockType, setStockType] = useState<'CHARITY' | 'EXPENSE' | ''>('');
+  const [stockDonorName, setStockDonorName] = useState('');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -107,11 +109,20 @@ export function FoodItemDetailPage() {
     if (stockMode === 'out') {
       if (q > currentQuantity) { setActionError(`Not enough stock — only ${currentQuantity} available.`); return; }
       if (!reason.trim()) { setActionError('A reason is required for Stock Out.'); return; }
+    } else if (stockType !== 'CHARITY' && stockType !== 'EXPENSE') {
+      setActionError('Select the type of stock: Charity or Expense.');
+      return;
+    } else if (stockType === 'CHARITY' && !stockDonorName.trim()) {
+      setActionError('Enter the name of the person who donated this stock.');
+      return;
     }
     setBusy(true);
     try {
       if (stockMode === 'in') {
-        await stockIn(foodItem.id, q);
+        await stockIn(foodItem.id, q, null, {
+          stockType: stockType as 'CHARITY' | 'EXPENSE',
+          donorName: stockType === 'CHARITY' ? stockDonorName.trim() : null,
+        });
         setNotice(`Stock In recorded for ${foodItem.name} (+${q} ${foodItem.unit?.symbol ?? ''}).`);
       } else {
         await stockOut(foodItem.id, q, { reason: reason.trim() });
@@ -147,7 +158,7 @@ export function FoodItemDetailPage() {
           <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-wider ${foodItem.isActive ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-slate-100 text-slate-600'}`}>
             {foodItem.isActive ? 'Active' : 'Inactive'}
           </span>
-          <button type="button" onClick={() => { setStockMode('in'); setQty(''); setReason(''); setActionError(null); }} className="rounded-xl bg-primary px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-primary-foreground transition hover:bg-primary-dark">+ Stock In</button>
+          <button type="button" onClick={() => { setStockMode('in'); setQty(''); setReason(''); setStockType(''); setStockDonorName(''); setActionError(null); }} className="rounded-xl bg-primary px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-primary-foreground transition hover:bg-primary-dark">+ Stock In</button>
           {currentQuantity > 0 && (
             <button type="button" onClick={() => { setStockMode('out'); setQty(''); setReason(''); setActionError(null); }} className="inline-flex items-center gap-1.5 rounded-xl border border-danger/40 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-danger transition hover:bg-danger-soft"><TruckIcon className="h-4 w-4" />− Stock Out</button>
           )}
@@ -250,6 +261,29 @@ export function FoodItemDetailPage() {
               </div>
             </div>
           </div>
+          {(() => {
+            const active = lots.filter((lot) => lot.quantityRemaining > 0);
+            const split = (type: 'CHARITY' | 'EXPENSE' | null) => active.filter((lot) => lot.stockType === type);
+            const qtyOf = (rows: typeof active) => rows.reduce((sum, lot) => sum + lot.quantityRemaining, 0);
+            const valueOf = (rows: typeof active) => rows.reduce((sum, lot) => sum + (lot.unitCost ?? 0) * lot.quantityRemaining, 0);
+            if (active.length === 0) return null;
+            return (
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {(['CHARITY', 'EXPENSE'] as const).map((type) => (
+                  <div key={type} className="rounded-xl border border-border bg-background px-4 py-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-secondary">{APP_CONSTANTS.stockType.labels[type]} stock</p>
+                    <p className="mt-1 text-sm font-bold tabular-nums text-ink">{qtyOf(split(type))} {foodItem.unit?.symbol}</p>
+                    <p className="mt-0.5 text-[11px] tabular-nums text-muted">{formatINR(valueOf(split(type)))}</p>
+                  </div>
+                ))}
+                <div className="rounded-xl border border-border bg-background px-4 py-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-secondary">Unclassified (legacy)</p>
+                  <p className="mt-1 text-sm font-bold tabular-nums text-ink">{qtyOf(split(null))} {foodItem.unit?.symbol}</p>
+                  <p className="mt-0.5 text-[11px] text-muted">Needs admin reconciliation</p>
+                </div>
+              </div>
+            );
+          })()}
           {lots.length === 0 ? (
             <p className="mt-4 text-sm text-secondary">No stock lots recorded for this item yet.</p>
           ) : (
@@ -260,6 +294,7 @@ export function FoodItemDetailPage() {
                     <th className="px-3 py-2.5">Lot</th>
                     <th className="px-3 py-2.5">Vendor</th>
                     <th className="px-3 py-2.5">Received</th>
+                    <th className="px-3 py-2.5">Type</th>
                     <th className="px-3 py-2.5 text-right">Original Qty</th>
                     <th className="px-3 py-2.5 text-right">Remaining</th>
                     <th className="px-3 py-2.5 text-right">Rate</th>
@@ -273,6 +308,11 @@ export function FoodItemDetailPage() {
                       <td className="px-3 py-2.5 font-mono text-xs font-semibold text-ink">{lot.lotNumber}</td>
                       <td className="px-3 py-2.5 text-secondary">{lot.vendorName ?? '—'}</td>
                       <td className="px-3 py-2.5 text-xs tabular-nums text-secondary">{lot.receivedDate}</td>
+                      <td className="px-3 py-2.5">
+                        <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${lot.stockType === 'CHARITY' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : lot.stockType === 'EXPENSE' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-slate-200 bg-slate-100 text-slate-600'}`}>
+                          {lot.stockType ? APP_CONSTANTS.stockType.labels[lot.stockType] : 'Unclassified'}
+                        </span>
+                      </td>
                       <td className="px-3 py-2.5 text-right tabular-nums text-secondary">{lot.quantityReceived}</td>
                       <td className="px-3 py-2.5 text-right font-bold tabular-nums text-ink">{lot.quantityRemaining}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums text-secondary">{formatINR(lot.unitCost)}</td>
@@ -299,6 +339,22 @@ export function FoodItemDetailPage() {
               <FieldLabel htmlFor="detail-qty" className="mb-1.5 block text-xs font-semibold text-ink">Quantity *</FieldLabel>
               <input id="detail-qty" type="number" min={QUANTITY_STEP} step={QUANTITY_STEP} value={qty} onChange={(e) => setQty(e.target.value)} autoFocus placeholder="e.g. 50" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
             </div>
+            {stockMode === 'in' && (
+              <div>
+                <FieldLabel htmlFor="detail-stock-type" className="mb-1.5 block text-xs font-semibold text-ink">Type of Stock *</FieldLabel>
+                <select id="detail-stock-type" value={stockType} required onChange={(e) => setStockType(e.target.value as 'CHARITY' | 'EXPENSE' | '')} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25">
+                  <option value="">Select type of stock…</option>
+                  <option value="CHARITY">Charity — donation / in-kind</option>
+                  <option value="EXPENSE">Expense — purchased / organisational cost</option>
+                </select>
+              </div>
+            )}
+            {stockMode === 'in' && stockType === 'CHARITY' && (
+              <div>
+                <FieldLabel htmlFor="detail-donor" className="mb-1.5 block text-xs font-semibold text-ink">Donated by *</FieldLabel>
+                <input id="detail-donor" type="text" required maxLength={200} value={stockDonorName} onChange={(e) => setStockDonorName(e.target.value)} placeholder="Name of the person who donated" className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
+              </div>
+            )}
             {stockMode === 'out' && (
               <div>
                 <FieldLabel htmlFor="detail-reason" className="mb-1.5 block text-xs font-semibold text-ink">Reason *</FieldLabel>

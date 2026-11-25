@@ -110,6 +110,10 @@ export async function updateFoodItem(id: string, payload: Partial<CreateFoodItem
 
 /** Optional lot metadata captured at Stock In. Total cost is computed server-side. */
 export interface StockInDetails {
+  /** Mandatory financial classification of this lot (never a default). */
+  stockType: 'CHARITY' | 'EXPENSE';
+  /** Donor name — mandatory for CHARITY, forbidden for EXPENSE. */
+  donorName?: string | null;
   purchaseDate?: string;
   receivedDate?: string;
   unitCost?: number;
@@ -123,10 +127,11 @@ export async function stockIn(
   vendorId?: string | null,
   details?: StockInDetails,
 ): Promise<{ inventory: { currentQuantity: number } }> {
-  const body: Record<string, unknown> = { quantity };
+  const body: Record<string, unknown> = { quantity, stockType: details?.stockType };
   if (vendorId !== undefined) body['vendorId'] = vendorId;
   if (details) {
     if (details.purchaseDate) body['purchaseDate'] = details.purchaseDate;
+    if (details.donorName) body['donorName'] = details.donorName;
     if (details.receivedDate) body['receivedDate'] = details.receivedDate;
     if (details.unitCost !== undefined) body['unitCost'] = details.unitCost;
     if (details.referenceNumber) body['referenceNumber'] = details.referenceNumber;
@@ -264,7 +269,7 @@ export async function updateVendor(id: string, payload: Partial<VendorPayload>):
   return response.data.data;
 }
 
-/** Soft-deactivate a vendor — stock history is preserved. */
+/** Permanently delete a vendor (stock rows are kept but lose the vendor reference). */
 export async function deleteVendor(id: string): Promise<void> {
   await apiClient.delete(vendorPath(id));
 }
@@ -347,6 +352,8 @@ export interface StockLotRow {
   foodItemName: string;
   vendorId: string | null;
   vendorName: string | null;
+  stockType: 'CHARITY' | 'EXPENSE' | null;
+  donorName: string | null;
   purchaseDate: string | null;
   receivedDate: string;
   quantityReceived: number;
@@ -386,6 +393,7 @@ export interface StockLotFilters {
   foodItemId?: string;
   vendorId?: string;
   status?: string;
+  stockType?: 'CHARITY' | 'EXPENSE' | 'UNCLASSIFIED';
   page?: number;
   pageSize?: number;
 }
@@ -395,6 +403,7 @@ export async function fetchStockLots(filters: StockLotFilters = {}): Promise<Sto
   if (filters.foodItemId) params['foodItemId'] = filters.foodItemId;
   if (filters.vendorId) params['vendorId'] = filters.vendorId;
   if (filters.status) params['status'] = filters.status;
+  if (filters.stockType) params['stockType'] = filters.stockType;
   if (filters.page) params['page'] = filters.page;
   if (filters.pageSize) params['pageSize'] = filters.pageSize;
   const response = await apiClient.get<ApiSuccess<StockLotPage>>(stockLotPath(), { params });
@@ -407,8 +416,10 @@ export async function fetchStockLot(id: string): Promise<StockLotDetail> {
 }
 
 export interface FifoPreviewAllocation {
+  stockLotId: string;
   lotNumber: string;
   vendorName: string | null;
+  stockType: 'CHARITY' | 'EXPENSE' | null;
   receivedDate: string;
   quantityAllocated: number;
   unitCost: number | null;
@@ -468,6 +479,7 @@ export interface LedgerRow {
   totalCost: number | null;
   stockLotId: string | null;
   lotNumber: string | null;
+  stockType: 'CHARITY' | 'EXPENSE' | null;
 }
 
 export interface LedgerPage {
@@ -482,6 +494,7 @@ export interface LedgerFilters {
   type?: string;
   dateFrom?: string;
   dateTo?: string;
+  stockType?: 'CHARITY' | 'EXPENSE' | 'UNCLASSIFIED';
   page?: number;
   pageSize?: number;
 }
@@ -492,6 +505,7 @@ export async function fetchLedger(filters: LedgerFilters = {}): Promise<LedgerPa
   if (filters.type) params['type'] = filters.type;
   if (filters.dateFrom) params['dateFrom'] = filters.dateFrom;
   if (filters.dateTo) params['dateTo'] = filters.dateTo;
+  if (filters.stockType) params['stockType'] = filters.stockType;
   if (filters.page) params['page'] = filters.page;
   if (filters.pageSize) params['pageSize'] = filters.pageSize;
   const response = await apiClient.get<ApiSuccess<LedgerPage>>(API_ENDPOINTS.ledger, { params });

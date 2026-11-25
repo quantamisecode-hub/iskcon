@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import type { StockLot } from '@prisma/client';
+import type { StockLot, StockType } from '@prisma/client';
 import { prisma } from '../config/database.js';
 import { ApiError } from '../middleware/error.middleware.js';
 import { ERROR_CODES } from '../constants/errorCodes.js';
@@ -48,6 +48,8 @@ export interface FifoAllocationLine {
   foodItemId: string;
   vendorId: string | null;
   vendorName: string | null;
+  /** Classification of the source lot — derived, never supplied by the client. */
+  stockType: StockType | null;
   receivedDate: string; // YYYY-MM-DD
   quantityAllocated: number;
   unitCost: number | null;
@@ -96,6 +98,10 @@ export interface CreateStockLotInput {
   /** Alias for quantityReceived (convenient for return receipts). */
   quantity?: number | string | Prisma.Decimal;
   vendorId?: string | null;
+  /** Financial classification. NULL only for legacy/unclassified opening lots. */
+  stockType?: StockType | null;
+  /** Donor credited on CHARITY lots only. */
+  donorName?: string | null;
   purchaseDate?: Date | string | null;
   receivedDate?: Date | string | null;
   unitCost?: number | string | Prisma.Decimal | null;
@@ -166,6 +172,7 @@ function allocationLine(entry: PlannedAllocation): FifoAllocationLine {
     foodItemId: entry.lot.foodItemId,
     vendorId: entry.lot.vendorId ?? null,
     vendorName: entry.lot.vendor?.name ?? null,
+    stockType: entry.lot.stockType ?? null,
     receivedDate: isoDate(entry.lot.receivedDate),
     quantityAllocated: entry.take.toNumber(),
     unitCost: entry.unitCost === null ? null : entry.unitCost.toNumber(),
@@ -219,6 +226,8 @@ export async function createStockLot(tx: Prisma.TransactionClient, input: Create
       lotNumber,
       foodItemId: input.foodItemId,
       vendorId: input.vendorId ?? null,
+      stockType: input.stockType ?? null,
+      donorName: input.stockType === 'CHARITY' ? input.donorName ?? null : null,
       purchaseDate: toDateOnly(input.purchaseDate),
       receivedDate: toDateOnly(input.receivedDate) ?? new Date(),
       quantityReceived: qty,
@@ -263,6 +272,7 @@ export async function previewFifoAllocation(foodItemId: string, quantity: number
       foodItemId,
       vendorId: null,
       vendorName: null,
+      stockType: null,
       receivedDate: isoDate(new Date()),
       quantityAllocated: Math.min(legacy.toNumber(), requested.toNumber() - plan.reduce((s, l) => s + l.take.toNumber(), 0)),
       unitCost: null,

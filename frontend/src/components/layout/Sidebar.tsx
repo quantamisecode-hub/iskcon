@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ComponentType } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { displayRole } from '../../features/auth/utils/roleLabel';
 import { NAV_ITEMS } from '../../constants/navItems';
 import {
   BoxIcon,
@@ -279,7 +280,7 @@ export function Sidebar({
           )}
           <div className="min-w-0">
             <p className="truncate text-xs font-bold text-[#fbf6ef]">{user.firstName} {user.lastName}</p>
-            <p className="text-[9px] font-semibold uppercase tracking-wider text-[#f5e6d8]/70">{user.role}</p>
+            <p className="text-[9px] font-semibold uppercase tracking-wider text-[#f5e6d8]/70">{displayRole(user.role)}</p>
           </div>
         </div>
       )}

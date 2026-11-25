@@ -10,7 +10,6 @@ const { brand, format, pdf: pdfStyle, dispatch: dispatchConfig, dishQuantity: di
 export interface DispatchChallanData {
   event: EventDetail;
   destinationAddress: string;
-  verifiedByName: string;
 }
 
 /** Loads the public logo as an embedded data URL so html2canvas can draw it reliably. */
@@ -53,7 +52,7 @@ function Field({ label, value }: { label: string; value: string }) {
 }
 
 /** The printable challan document. Inline styles guarantee html2canvas fidelity. */
-function ChallanDocument({ event, destinationAddress, verifiedByName, logo }: DispatchChallanData & { logo: string }) {
+function ChallanDocument({ event, destinationAddress, verifiedByName, logo }: DispatchChallanData & { logo: string; verifiedByName: string }) {
   const formattedEventDate = isoDateToDisplay(event.eventDate);
 
   const headerStyle: CSSProperties = {
@@ -103,15 +102,32 @@ function ChallanDocument({ event, destinationAddress, verifiedByName, logo }: Di
         <div style={{ flex: 1 }}>
           <div style={headerStyle}>EVENT DETAILS</div>
           <Field label="Name of Event" value={event.name} />
+          <Field label="Event Type" value={event.eventType ?? ''} />
+          <Field label="Serving Type" value={event.servingType ?? ''} />
           <Field label="Date" value={formattedEventDate} />
           <Field label="Start Time" value={formatTime12h(event.startTime)} />
-          <Field label="Address" value={event.location ?? ''} />
+          <Field label="Number of People" value={String(event.numberOfPeople)} />
         </div>
         <div style={{ flex: 1 }}>
           <div style={headerStyle}>DISPATCH DETAILS</div>
           <Field label="Destination Address" value={destinationAddress} />
           <Field label="Verified By" value={verifiedByName} />
           <Field label="Time of Dispatch" value={formatDateTime12h(event.dispatchedAt, format.timeZone, format.locale)} />
+        </div>
+      </div>
+
+      {/* On-site contact details captured on the event's ADDRESS form */}
+      <div style={{ marginTop: 16, borderTop: `1px solid ${pdfStyle.colors.border}`, paddingTop: 12 }}>
+        <div style={headerStyle}>ADDRESS</div>
+        <div style={{ display: 'flex', gap: 24 }}>
+          <div style={{ flex: 1 }}>
+            <Field label="Contact Person" value={event.contactPerson ?? ''} />
+            <Field label="Mobile Number" value={event.mobileNumber ?? ''} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <Field label="Address" value={event.location ?? ''} />
+            <Field label="Address Notes" value={event.notes ?? ''} />
+          </div>
         </div>
       </div>
 
@@ -177,7 +193,20 @@ function ChallanDocument({ event, destinationAddress, verifiedByName, logo }: Di
  * The heavy PDF libraries are loaded lazily so the main bundle stays small.
  */
 export async function buildDispatchChallanPdfBlob(data: DispatchChallanData): Promise<Blob> {
-  const dispatchAt = data.event.dispatchedAt ?? new Date().toISOString();
+  const event = data.event;
+  // Authoritative guards: never generate a challan from unsaved/invalid state,
+  // and never trust a verifier name supplied by the browser.
+  if (event.status !== 'READY' && event.status !== 'COMPLETED') {
+    throw new Error('Only a Ready or Completed event can produce a dispatch challan.');
+  }
+  if (!event.dispatchedAt) {
+    throw new Error('Save the dispatch details before generating the challan.');
+  }
+  if (!event.verifiedBy) {
+    throw new Error('A saved verifier is required before generating the challan.');
+  }
+  const verifiedByName = `${event.verifiedBy.firstName} ${event.verifiedBy.lastName}`.trim();
+  const dispatchAt = event.dispatchedAt;
   if (
     isEventBeforeDispatch(
       data.event.eventDate,
@@ -197,7 +226,7 @@ export async function buildDispatchChallanPdfBlob(data: DispatchChallanData): Pr
   const root = createRoot(host);
 
   try {
-    flushSync(() => root.render(<ChallanDocument {...data} logo={logo} />));
+    flushSync(() => root.render(<ChallanDocument {...data} logo={logo} verifiedByName={verifiedByName} />));
     // Let the browser paint (and the embedded logo settle) before capturing.
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 

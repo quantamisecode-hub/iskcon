@@ -74,7 +74,7 @@ CREATE TABLE `User` (
     `lastName` VARCHAR(100) NOT NULL,
     `email` VARCHAR(255) NOT NULL,
     `passwordHash` VARCHAR(255) NOT NULL,
-    `role` ENUM('ADMIN', 'EXECUTOR') NOT NULL,
+    `role` ENUM('ADMIN', 'EXECUTOR', 'EVENT_CREATOR') NOT NULL,
     `isActive` BOOLEAN NOT NULL DEFAULT true,
     `lastLoginAt` DATETIME(3) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),

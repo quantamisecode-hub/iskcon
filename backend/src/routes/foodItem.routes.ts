@@ -6,6 +6,8 @@ import { sendRouteError } from '../middleware/routeError.js';
 import { vendorRepository } from '../repositories/vendor.repository.js';
 import { ApiError } from '../middleware/error.middleware.js';
 import { ERROR_CODES } from '../constants/errorCodes.js';
+import { validateBody } from '../middleware/validation.middleware.js';
+import { stockInSchema, type StockInInput } from '../validators/inventory.validator.js';
 
 const foodItemRouter = Router();
 
@@ -21,8 +23,6 @@ const asNonNegativeNumber = (value: unknown): number | null => {
   const n = Number(value);
   return Number.isFinite(n) && n >= 0 ? n : null;
 };
-
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const normalizeIsActive = (isActive?: string | boolean): 'true' | 'false' | undefined => {
   if (isActive === undefined) return undefined;
@@ -162,91 +162,40 @@ foodItemRouter.delete('/:id', adminOnly, async (req: Request, res: Response) => 
 });
 
 // Stock In
-foodItemRouter.post('/:id/stock-in', adminOnly, async (req: Request, res: Response) => {
+foodItemRouter.post('/:id/stock-in', adminOnly, validateBody(stockInSchema), async (req: Request, res: Response) => {
   try {
-    const body = req.body as {
-      quantity?: unknown;
-      vendorId?: unknown;
-      purchaseDate?: unknown;
-      receivedDate?: unknown;
-      unitCost?: unknown;
-      referenceNumber?: unknown;
-      notes?: unknown;
-    };
-    const quantity = body.quantity;
-    if (typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity <= 0) {
-      return badRequest(res, 'Quantity must be a positive number.');
-    }
+    // Strict Zod validation runs before this handler: stockType is mandatory,
+    // unknown fields (including totalCost) are rejected, never trusted.
+    const body = req.body as StockInInput;
 
-    // Optional supplier attribution. Reject malformed ids and any vendor that
-    // is missing or deactivated so the ledger never records a dead supplier.
+    // Optional supplier attribution — DB check stays here (Zod cannot resolve ids).
     let linkedVendorId: string | null = null;
-    if (body.vendorId !== undefined && body.vendorId !== null) {
-      const trimmed = String(body.vendorId).trim();
-      if (!UUID_REGEX.test(trimmed)) {
-        throw new ApiError({ statusCode: 400, code: ERROR_CODES.VALIDATION_ERROR, message: 'vendorId must be a valid UUID.' });
-      }
-      const vendor = await vendorRepository.findById(trimmed);
+    if (body.vendorId) {
+      const vendor = await vendorRepository.findById(body.vendorId);
       if (!vendor || !vendor.isActive) {
         throw new ApiError({ statusCode: 404, code: ERROR_CODES.NOT_FOUND, message: 'Active vendor not found.' });
       }
-      linkedVendorId = trimmed;
-    }
-
-    // Lot provenance. Dates are calendar dates (YYYY-MM-DD); the total cost is
-    // ALWAYS recomputed server-side from quantity × unitCost — never trusted
-    // from the client.
-    const parseDate = (value: unknown, label: string): string | null => {
-      if (value === undefined || value === null || value === '') return null;
-      if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-        throw new ApiError({ statusCode: 400, code: ERROR_CODES.VALIDATION_ERROR, message: `${label} must be a valid YYYY-MM-DD date.` });
-      }
-      const parsed = new Date(`${value}T00:00:00.000Z`);
-      if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
-        throw new ApiError({ statusCode: 400, code: ERROR_CODES.VALIDATION_ERROR, message: `${label} must be a valid YYYY-MM-DD date.` });
-      }
-      return value;
-    };
-
-    const purchaseDate = parseDate(body.purchaseDate, 'purchaseDate');
-    const receivedDate = parseDate(body.receivedDate, 'receivedDate') ?? new Date().toISOString().slice(0, 10);
-
-    let unitCost: number | null = null;
-    if (body.unitCost !== undefined && body.unitCost !== null && body.unitCost !== '') {
-      const cost = Number(body.unitCost);
-      if (!Number.isFinite(cost) || cost < 0) {
-        throw new ApiError({ statusCode: 400, code: ERROR_CODES.VALIDATION_ERROR, message: 'unitCost must be a non-negative number.' });
-      }
-      unitCost = cost;
-    }
-
-    const referenceNumber = body.referenceNumber === undefined || body.referenceNumber === null
-      ? null
-      : String(body.referenceNumber).trim();
-    if (referenceNumber !== null && referenceNumber.length > 100) {
-      throw new ApiError({ statusCode: 400, code: ERROR_CODES.VALIDATION_ERROR, message: 'referenceNumber must be 100 characters or fewer.' });
-    }
-    const notes = body.notes === undefined || body.notes === null ? null : String(body.notes).trim();
-    if (notes !== null && notes.length > 500) {
-      throw new ApiError({ statusCode: 400, code: ERROR_CODES.VALIDATION_ERROR, message: 'notes must be 500 characters or fewer.' });
+      linkedVendorId = body.vendorId;
     }
 
     const actor = getAuthenticatedUser(req).id;
     const idempotencyKey = req.headers['idempotency-key'] as string | undefined;
     const result = await foodItemService.addStock(
       String(req.params.id ?? '').trim(),
-      quantity,
+      body.quantity,
       actor,
       { ipAddress: req.ip, userAgent: req.headers['user-agent'] },
       undefined,
       undefined,
       idempotencyKey,
       linkedVendorId,
-      purchaseDate,
-      receivedDate,
-      unitCost,
-      referenceNumber || null,
-      notes || null,
+      body.purchaseDate ?? null,
+      body.receivedDate ?? new Date().toISOString().slice(0, 10),
+      body.unitCost ?? null,
+      body.referenceNumber ?? null,
+      body.notes ?? null,
+      body.stockType,
+      body.donorName ?? null,
     );
     res.status(200).json({ success: true, data: result });
   } catch (error: unknown) {

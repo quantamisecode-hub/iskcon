@@ -8,6 +8,7 @@ export const listLedgerQuerySchema = z
     dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     userId: z.string().uuid().optional(),
+  stockType: z.enum(['CHARITY', 'EXPENSE', 'UNCLASSIFIED']).optional(),
     page: z.coerce.number().int().min(1).default(1),
     pageSize: z.coerce.number().int().min(1).max(100).default(20),
   })

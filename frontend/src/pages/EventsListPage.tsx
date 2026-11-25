@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useAuth } from '../hooks/useAuth';
 import { Link, useNavigate } from 'react-router-dom';
 import { fetchEvents, type EventFilters } from '../features/events/api/events.api';
 import { EventStatusBadge } from '../features/events/components/EventStatusBadge';
@@ -16,6 +17,9 @@ function formatDate(isoDate: string): string {
 
 export function EventsListPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  // Executors can view events but must not see the create action.
+  const canCreate = user?.role !== 'EXECUTOR';
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<EventStatus | ''>('');
   const [dateFrom, setDateFrom] = useState('');
@@ -79,13 +83,15 @@ export function EventsListPage() {
             Plan Mahaprasadam events, dishes and material requirements — planning only, stock is never deducted.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => navigate('/events/new')}
-          className="rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground shadow-lift transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
-        >
-          + New Event
-        </button>
+        {canCreate && (
+          <button
+            type="button"
+            onClick={() => navigate('/events/new')}
+            className="rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground shadow-lift transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+          >
+            + New Event
+          </button>
+        )}
       </div>
 
       {/* Filters */}
@@ -151,13 +157,15 @@ export function EventsListPage() {
               ? 'No events match these filters. Try clearing them.'
               : 'Create your first event to start planning dishes and materials.'}
           </p>
-          <button
-            type="button"
-            onClick={() => navigate('/events/new')}
-            className="mt-5 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary-dark"
-          >
-            + Create Event
-          </button>
+          {canCreate && (
+            <button
+              type="button"
+              onClick={() => navigate('/events/new')}
+              className="mt-5 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary-dark"
+            >
+              + Create Event
+            </button>
+          )}
         </div>
       ) : (
         <>
