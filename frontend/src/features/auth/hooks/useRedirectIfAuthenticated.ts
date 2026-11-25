@@ -6,12 +6,12 @@ import { useAuth } from '../../../hooks/useAuth';
  * Redirects already-authenticated users away from /login to the dashboard.
  */
 export function useRedirectIfAuthenticated() {
-  const { isAuthenticated, status } = useAuth();
+  const { isAuthenticated, status, user } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
     if (status === 'ready' && isAuthenticated) {
-      navigate('/dashboard', { replace: true });
+      navigate(user?.role === 'EVENT_CREATOR' ? '/events' : '/dashboard', { replace: true });
     }
-  }, [isAuthenticated, status, navigate]);
+  }, [isAuthenticated, status, navigate, user?.role]);
 }

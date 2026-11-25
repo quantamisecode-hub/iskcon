@@ -5,7 +5,7 @@ CREATE TABLE `User` (
     `lastName` VARCHAR(100) NOT NULL,
     `email` VARCHAR(255) NOT NULL,
     `passwordHash` VARCHAR(255) NOT NULL,
-    `role` ENUM('ADMIN', 'EXECUTOR') NOT NULL,
+    `role` ENUM('ADMIN', 'EXECUTOR', 'EVENT_CREATOR') NOT NULL,
     `isActive` BOOLEAN NOT NULL DEFAULT true,
     `lastLoginAt` DATETIME(3) NULL,
     `avatarUrl` MEDIUMTEXT NULL,
@@ -194,6 +194,8 @@ CREATE TABLE `StockLot` (
     `lotNumber` VARCHAR(50) NOT NULL,
     `foodItemId` CHAR(36) NOT NULL,
     `vendorId` CHAR(36) NULL,
+    `stockType` ENUM('CHARITY', 'EXPENSE') NULL,
+    `donorName` VARCHAR(200) NULL,
     `purchaseDate` DATE NULL,
     `receivedDate` DATE NOT NULL,
     `quantityReceived` DECIMAL(12, 3) NOT NULL,
@@ -211,6 +213,7 @@ CREATE TABLE `StockLot` (
     INDEX `StockLot_fifo_idx`(`foodItemId`, `status`, `receivedDate`, `createdAt`),
     INDEX `StockLot_vendorId_idx`(`vendorId`),
     INDEX `StockLot_status_idx`(`status`),
+    INDEX `StockLot_stockType_idx`(`stockType`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -273,6 +276,26 @@ CREATE TABLE `Event` (
     INDEX `Event_createdBy_idx`(`createdBy`),
     INDEX `Event_status_idx`(`status`),
     INDEX `Event_eventDate_idx`(`eventDate`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `EventExpense` (
+    `id` CHAR(36) NOT NULL,
+    `eventId` CHAR(36) NOT NULL,
+    `category` VARCHAR(50) NOT NULL,
+    `description` VARCHAR(255) NOT NULL,
+    `amount` DECIMAL(14, 2) NOT NULL,
+    `expenseDate` DATE NOT NULL,
+    `reference` VARCHAR(100) NULL,
+    `notes` TEXT NULL,
+    `createdBy` CHAR(36) NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    INDEX `EventExpense_eventId_idx`(`eventId`),
+    INDEX `EventExpense_category_idx`(`category`),
+    INDEX `EventExpense_expenseDate_idx`(`expenseDate`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -548,6 +571,12 @@ ALTER TABLE `InventoryTransaction` ADD CONSTRAINT `InventoryTransaction_vendorId
 
 -- AddForeignKey
 ALTER TABLE `InventoryTransaction` ADD CONSTRAINT `InventoryTransaction_stockLotId_fkey` FOREIGN KEY (`stockLotId`) REFERENCES `StockLot`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `EventExpense` ADD CONSTRAINT `EventExpense_eventId_fkey` FOREIGN KEY (`eventId`) REFERENCES `Event`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `EventExpense` ADD CONSTRAINT `EventExpense_createdBy_fkey` FOREIGN KEY (`createdBy`) REFERENCES `User`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `StockLot` ADD CONSTRAINT `StockLot_foodItemId_fkey` FOREIGN KEY (`foodItemId`) REFERENCES `FoodItem`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;

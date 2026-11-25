@@ -109,7 +109,7 @@ describe('TEST 1 — Parallel stock-in: no lost updates', () => {
         request(app)
           .post(`/api/v1/food-items/${foodItemId}/stock-in`)
           .set('Cookie', cookie)
-          .send({ quantity: 10 }),
+          .send({ quantity: 10, stockType: 'EXPENSE' }),
       ),
     );
 
@@ -183,7 +183,7 @@ describe('TEST 3 — High-concurrency stock-in', () => {
         request(app)
           .post(`/api/v1/food-items/${foodItemId}/stock-in`)
           .set('Cookie', cookie)
-          .send({ quantity: QTY }),
+          .send({ quantity: QTY, stockType: 'EXPENSE' }),
       ),
     );
 
@@ -256,7 +256,7 @@ describe('TEST 5 — Mixed stock-in and stock-out', () => {
         request(app)
           .post(`/api/v1/food-items/${foodItemId}/stock-in`)
           .set('Cookie', cookie)
-          .send({ quantity: 20 }),
+          .send({ quantity: 20, stockType: 'EXPENSE' }),
       ),
       // 8 stock-outs of −15
       ...Array.from({ length: 8 }, () =>
@@ -300,14 +300,14 @@ describe('TEST 6 — Duplicate request (idempotency key)', () => {
       .post(`/api/v1/food-items/${foodItemId}/stock-in`)
       .set('Cookie', cookie)
       .set('Idempotency-Key', idempotencyKey)
-      .send({ quantity: 25 });
+      .send({ quantity: 25, stockType: 'EXPENSE' });
     expect(first.status).toBe(200);
 
     const second = await request(app)
       .post(`/api/v1/food-items/${foodItemId}/stock-in`)
       .set('Cookie', cookie)
       .set('Idempotency-Key', idempotencyKey)
-      .send({ quantity: 25 });
+      .send({ quantity: 25, stockType: 'EXPENSE' });
     expect(second.status).toBe(200);
 
     const stock = await getStock(foodItemId);
@@ -403,7 +403,7 @@ describe('TEST 9 — Multiple products: locks are per-row', () => {
         request(app)
           .post(`/api/v1/food-items/${foodA}/stock-in`)
           .set('Cookie', cookie)
-          .send({ quantity: 10 }),
+          .send({ quantity: 10, stockType: 'EXPENSE' }),
       ),
       // Product B: 10 concurrent −5 stock-outs
       ...Array.from({ length: 10 }, () =>
@@ -456,7 +456,7 @@ describe('TEST 11 — Reconciliation after mixed operations', () => {
     await request(app)
       .post(`/api/v1/food-items/${foodItemId}/stock-in`)
       .set('Cookie', cookie)
-      .send({ quantity: 30 });
+      .send({ quantity: 30, stockType: 'EXPENSE' });
     await request(app)
       .post(`/api/v1/food-items/${foodItemId}/stock-out`)
       .set('Cookie', cookie)
@@ -494,7 +494,7 @@ describe('TEST 12 — Repeat concurrency test ×100 rounds', () => {
           request(app)
             .post(`/api/v1/food-items/${foodItemId}/stock-in`)
             .set('Cookie', cookie)
-            .send({ quantity: 10 }),
+            .send({ quantity: 10, stockType: 'EXPENSE' }),
         ),
       );
       const successfulIns = ins.filter((r) => r.status === 'fulfilled' && (r.value as request.Response).status === 200).length;

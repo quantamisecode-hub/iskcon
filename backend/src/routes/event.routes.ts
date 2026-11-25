@@ -33,14 +33,19 @@ import {
  */
 export const eventRouter = Router();
 
-const anyRole = [authenticate];
+/** Staff only — EVENT_CREATOR is explicitly denied on every mutation/read here. */
+const anyRole = [authenticate, requireRole(ROLES.ADMIN, ROLES.EXECUTOR)];
+/** Create + view events: the only event routes available to EVENT_CREATOR. */
+const eventView = [authenticate, requireRole(ROLES.ADMIN, ROLES.EXECUTOR, ROLES.EVENT_CREATOR)];
+/** Creating an event is Admin / Event Creator only — Executors may only view. */
+const createAllowed = [authenticate, requireRole(ROLES.ADMIN, ROLES.EVENT_CREATOR)];
 const adminOnly = [authenticate, requireRole(ROLES.ADMIN)];
 const executorOnly = [authenticate, requireRole(ROLES.EXECUTOR)];
 
 // --- Events CRUD ---
-eventRouter.get('/', anyRole, validateQuery(listEventsQuerySchema), eventController.list);
-eventRouter.post('/', anyRole, validateBody(createEventSchema), eventController.create);
-eventRouter.get('/:id', anyRole, validateParams(eventIdParamsSchema), eventController.getById);
+eventRouter.get('/', eventView, validateQuery(listEventsQuerySchema), eventController.list);
+eventRouter.post('/', createAllowed, validateBody(createEventSchema), eventController.create);
+eventRouter.get('/:id', eventView, validateParams(eventIdParamsSchema), eventController.getById);
 eventRouter.patch('/:id', anyRole, validateParams(eventIdParamsSchema), validateBody(updateEventSchema), eventController.update);
 eventRouter.patch('/:id/status', anyRole, validateParams(eventIdParamsSchema), validateBody(changeEventStatusSchema), eventController.changeStatus);
 // Phase 7 extension: cancellation with a mandatory reason (ADMIN only — service enforces).

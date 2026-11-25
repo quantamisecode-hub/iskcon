@@ -1,4 +1,4 @@
-import { createContext, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { AuthUserProfile } from '../features/auth/api/auth.api';
 import { loginRequest, logoutRequest, fetchCurrentUser } from '../features/auth/api/auth.api';
 import { SESSION_EXPIRED_EVENT, type AuthEventDetail } from '../constants/authEvents';
@@ -31,6 +31,8 @@ export const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUserProfile | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready'>('loading');
+  /** A completed login wins over a slow in-flight session restore. */
+  const loginStartedRef = useRef(false);
 
   const isAuthenticated = user !== null;
 
@@ -39,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     fetchCurrentUser()
       .then((profile) => {
-        if (!cancelled) {
+        if (!cancelled && !loginStartedRef.current) {
           setUser(profile);
           setStatus('ready');
         }
@@ -66,7 +68,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     const profile = await loginRequest(email, password);
+    loginStartedRef.current = true;
     setUser(profile);
+    setStatus('ready');
     return profile;
   }, []);
 

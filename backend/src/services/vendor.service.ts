@@ -247,9 +247,28 @@ export const vendorService = {
     return serializeVendor(updated);
   },
 
-  /** Kept for backwards compatibility: deactivation is the safe delete. */
+  /**
+   * Permanently remove a vendor. Stock transactions and lots that referenced it
+   * keep their rows but lose the vendor attribution (FK ON DELETE SET NULL).
+   * A snapshot of the deleted row is kept in the append-only audit log.
+   */
   async delete(id: string, actor: VendorActor, context: { ipAddress?: string; userAgent?: string }): Promise<void> {
     requireVendorAdmin(actor);
-    await vendorService.deactivate(actor, id, context);
+    const vendor = await vendorRepository.findById(id);
+    if (!vendor) {
+      throw new ApiError({ statusCode: 404, code: ERROR_CODES.NOT_FOUND, message: 'Vendor not found.' });
+    }
+    const snapshot = serializeVendor(vendor);
+    await vendorRepository.delete(id);
+    await auditLogService.createAuditLog({
+      userId: actor.id,
+      action: AUDIT_ACTIONS.DELETE_VENDOR,
+      entityType: 'VENDOR',
+      entityId: vendor.id,
+      oldValues: snapshot,
+      newValues: null,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+    });
   },
 };

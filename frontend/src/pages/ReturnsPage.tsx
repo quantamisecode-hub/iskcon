@@ -68,6 +68,7 @@ function tabFilters(tab: TabId): { status?: string; completed?: boolean } {
 export function ReturnsPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const isExecutor = user?.role === 'EXECUTOR';
   const navigate = useNavigate();
 
   const [tab, setTab] = useState<TabId>('all');
@@ -138,7 +139,7 @@ export function ReturnsPage() {
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-ink">Material Returns</h1>
           <p className="mt-1 text-sm text-secondary">Issued material physically coming back to the store.</p>
         </div>
-        {!isAdmin && (
+        {isExecutor && (
           <button
             type="button"
             onClick={() => navigate('/events')}

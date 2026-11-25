@@ -34,13 +34,23 @@ import { useAuth } from '../hooks/useAuth';
 import { onRealtime, SOCKET_EVENT } from '../services/realtime/socketClient';
 import { MultiAddPanel, type MultiAddEntry } from '../features/events/components/MultiAddPanel';
 import { Modal } from '../components/ui/Modal';
-import { APP_CONSTANTS, DONATION_TYPES } from '../constants/appConstants';
+import { APP_CONSTANTS, DONATION_TYPES, EVENT_EXPENSE_CATEGORIES } from '../constants/appConstants';
 import { formatTime12h, isEventBeforeDispatch, isoDateToDisplay } from '../utils/dateTime';
 import { downloadDispatchChallanPdf } from '../features/events/components/DispatchChallanPdf';
 import { Skeleton } from '../components/ui/Skeleton';
 import type { EventDetail, EventStatus, UnitRef } from '../features/events/types';
 import { AlertCircleIcon, CalendarIcon, CheckIcon, ChevronDownIcon, ClockIcon, DownloadIcon, GaugeIcon, LockIcon, MapPinIcon, PlusIcon, TruckIcon, UsersIcon, UtensilsIcon } from '../components/ui/icons';
 import { FieldLabel } from '../components/ui/FieldLabel';
+import { formatINR } from '../features/inventory/api/inventory.api';
+import {
+  fetchEventFinancialStatement,
+  fetchEventExpenses,
+  createEventExpense,
+  deleteEventExpense,
+  type EventFinancialStatement,
+  type EventExpense,
+  type ExpenseCategory,
+} from '../features/financial/api/financial.api';
 
 
 const EDITABLE: ReadonlySet<EventStatus> = new Set(['DRAFT', 'PLANNING']);
@@ -140,6 +150,37 @@ export function EventDetailPage() {
   const [additionalBusy, setAdditionalBusy] = useState(false);
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const isExecutor = user?.role === 'EXECUTOR';
+  const isEventCreator = user?.role === 'EVENT_CREATOR';
+
+  // ADMIN-only financial statement + non-inventory event expenses.
+  const [statement, setStatement] = useState<EventFinancialStatement | null>(null);
+  const [statementLoading, setStatementLoading] = useState(false);
+  const [expenses, setExpenses] = useState<EventExpense[]>([]);
+  const [showExpense, setShowExpense] = useState(false);
+  const [expenseCategory, setExpenseCategory] = useState<ExpenseCategory>('GAS');
+  const [expenseDescription, setExpenseDescription] = useState('');
+  const [expenseAmount, setExpenseAmount] = useState('');
+  const [expenseDate, setExpenseDate] = useState(new Date().toISOString().slice(0, 10));
+  const [expenseReference, setExpenseReference] = useState('');
+  const [expenseNotes, setExpenseNotes] = useState('');
+  const [expenseError, setExpenseError] = useState<string | null>(null);
+  const [expenseBusy, setExpenseBusy] = useState(false);
+
+  const loadFinancial = useCallback(async (eventId: string) => {
+    setStatementLoading(true);
+    const [statementResult, expenseResult] = await Promise.allSettled([
+      fetchEventFinancialStatement(eventId),
+      fetchEventExpenses(eventId),
+    ]);
+    setStatement(statementResult.status === 'fulfilled' ? statementResult.value : null);
+    setExpenses(expenseResult.status === 'fulfilled' ? expenseResult.value : []);
+    setStatementLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (isAdmin && id) void loadFinancial(id);
+  }, [isAdmin, id, loadFinancial]);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -204,7 +245,8 @@ export function EventDetailPage() {
     return () => { unsubscribe(); };
   }, [id, load]);
 
-  const isEditable = event ? EDITABLE.has(event.status) : false;
+  // Event Creators are strictly read-only after creating the event.
+  const isEditable = event ? EDITABLE.has(event.status) && !isEventCreator : false;
 
   // Per-food-item shortfall across ALL committed (non-draft) lines in this event.
   const refillNeeds = useMemo(() => {
@@ -243,6 +285,48 @@ export function EventDetailPage() {
     window.setTimeout(() => setNotice(null), 4000);
   };
 
+  const submitExpense = async () => {
+    if (!event) return;
+    setExpenseError(null);
+    const amount = Number(expenseAmount);
+    if (!expenseDescription.trim()) { setExpenseError('A description is required.'); return; }
+    if (!Number.isFinite(amount) || amount <= 0) { setExpenseError('Enter an amount greater than zero.'); return; }
+    setExpenseBusy(true);
+    try {
+      await createEventExpense({
+        eventId: event.id,
+        category: expenseCategory,
+        description: expenseDescription.trim(),
+        amount: Math.round(amount * 100) / 100,
+        expenseDate,
+        reference: expenseReference.trim() || null,
+        notes: expenseNotes.trim() || null,
+      });
+      setShowExpense(false);
+      setExpenseDescription(''); setExpenseAmount(''); setExpenseReference(''); setExpenseNotes('');
+      showNotice('Event expense recorded.');
+      void loadFinancial(event.id);
+    } catch (err) {
+      const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
+      setExpenseError(msg ?? 'Could not record the expense.');
+    } finally {
+      setExpenseBusy(false);
+    }
+  };
+
+  const removeExpense = async (expenseId: string) => {
+    if (!event) return;
+    if (!window.confirm('Delete this event expense? This cannot be undone.')) return;
+    try {
+      await deleteEventExpense(expenseId);
+      showNotice('Event expense deleted.');
+      void loadFinancial(event.id);
+    } catch (err) {
+      const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
+      showNotice(msg ?? 'Could not delete the expense.');
+    }
+  };
+
   // Committed (non-draft) plan lines the executor can request against.
   const committedLines = useMemo(() => {
     if (!event) return [];
@@ -259,6 +343,18 @@ export function EventDetailPage() {
         })),
     );
   }, [event]);
+
+  // Quantity gate: every dish must carry an explicit positive quantity before
+  // any material demand or the READY transition is allowed. Headcount is only
+  // a display fallback and never satisfies this requirement.
+  const dishesMissingQuantity = useMemo(
+    () => (event?.dishes ?? []).filter((d) => d.quantity === null || Number(d.quantity) <= 0),
+    [event],
+  );
+  const dishQuantitiesValid = dishesMissingQuantity.length === 0;
+  const quantityGateMessage = dishesMissingQuantity.length
+    ? `Set a positive quantity for ${dishesMissingQuantity.map((d) => d.dish.name).join(', ')} first.`
+    : 'Add at least one dish with a quantity first.';
 
   const openCreateRequest = () => {
     const selection: Record<string, boolean> = {};
@@ -277,6 +373,10 @@ export function EventDetailPage() {
 
   const submitCreateRequest = () => {
     if (!event) return;
+    if (!dishQuantitiesValid) {
+      setRequestFormError(quantityGateMessage);
+      return;
+    }
     const items: Array<{ eventMaterialId: string; requestedQuantity: number }> = [];
     for (const line of committedLines) {
       if (!selectedLines[line.id]) continue;
@@ -407,14 +507,11 @@ export function EventDetailPage() {
     ).then(() => showNotice(APP_CONSTANTS.dispatch.messages.saved));
   };
 
-  const printDispatchChallan = async () => {
+  /** Downloads the challan from the persisted dispatch details (post-save). */
+  const downloadSavedDispatchPdf = async () => {
     if (!event) return;
-    const destination = dispatchDestination.trim();
-    if (!destination) { setActionError(APP_CONSTANTS.dispatch.messages.destinationRequiredForPrint); return; }
-    const verifier = dispatchVerifiers.find((item) => item.id === dispatchVerifiedById);
-    if (!verifier) { setActionError(APP_CONSTANTS.dispatch.messages.verifierRequiredForPrint); return; }
-    if (isEventBeforeDispatch(event.eventDate, event.startTime, new Date().toISOString(), APP_CONSTANTS.format.timeZoneOffsetMinutes)) {
-      setActionError(APP_CONSTANTS.dispatch.messages.eventBeforeDispatch);
+    if ((event.status !== 'READY' && event.status !== 'COMPLETED') || !event.dispatchedAt || !event.verifiedBy) {
+      setActionError('Mark the event Ready and save the verifier details before downloading the challan.');
       return;
     }
     setActionError(null);
@@ -422,28 +519,7 @@ export function EventDetailPage() {
     try {
       await downloadDispatchChallanPdf({
         event,
-        destinationAddress: destination,
-        verifiedByName: `${verifier.firstName} ${verifier.lastName}`,
-      });
-    } catch (err) {
-      setActionError((err as { message?: string })?.message ?? APP_CONSTANTS.dispatch.messages.pdfFailed);
-    } finally {
-      setDispatchPdfBusy(false);
-    }
-  };
-
-  /** Downloads the challan from the persisted dispatch details (post-save). */
-  const downloadSavedDispatchPdf = async () => {
-    if (!event) return;
-    setActionError(null);
-    setDispatchPdfBusy(true);
-    try {
-      await downloadDispatchChallanPdf({
-        event,
         destinationAddress: event.dispatchDestination ?? event.location ?? '',
-        verifiedByName: event.verifiedBy
-          ? `${event.verifiedBy.firstName} ${event.verifiedBy.lastName}`
-          : APP_CONSTANTS.dispatch.unknownVerifier,
       });
     } catch (err) {
       setActionError((err as { message?: string })?.message ?? APP_CONSTANTS.dispatch.messages.pdfFailed);
@@ -540,6 +616,10 @@ export function EventDetailPage() {
 
   const submitAdditional = () => {
     if (!event) return;
+    if (!dishQuantitiesValid) {
+      setAdditionalError(quantityGateMessage);
+      return;
+    }
     const reason = additionalReason.trim();
     if (!reason) {
       setAdditionalError('A reason for the additional request is required.');
@@ -612,7 +692,7 @@ export function EventDetailPage() {
     );
   }
 
-  const actions = STATUS_ACTIONS[event.status] ?? [];
+  const actions = isEventCreator ? [] : (STATUS_ACTIONS[event.status] ?? []);
 
   return (
     <div className="space-y-6">
@@ -639,8 +719,13 @@ export function EventDetailPage() {
               <button
                 key={action.target}
                 type="button"
-                disabled={isBusy}
+                disabled={isBusy || (action.target === 'READY' && !dishQuantitiesValid)}
+                title={action.target === 'READY' && !dishQuantitiesValid ? quantityGateMessage : undefined}
                 onClick={() => {
+                  if (action.target === 'READY' && !dishQuantitiesValid) {
+                    setActionError(quantityGateMessage);
+                    return;
+                  }
                   if (action.target === 'CANCELLED') {
                     setCancelReason('');
                     setActionError(null);
@@ -668,7 +753,7 @@ export function EventDetailPage() {
                 {action.label}
               </button>
             ))}
-            {(event.status === 'READY' || event.status === 'COMPLETED') && (
+            {!isEventCreator && (event.status === 'READY' || event.status === 'COMPLETED') && (
               <button
                 type="button"
                 disabled={isBusy}
@@ -679,7 +764,9 @@ export function EventDetailPage() {
                 Ready for Dispatch
               </button>
             )}
-            {event.dispatchedAt && (
+            {!isEventCreator && event.dispatchedAt &&
+              (event.status === 'READY' || event.status === 'COMPLETED') &&
+              Boolean(event.verifiedBy) && (
               <button
                 type="button"
                 disabled={dispatchPdfBusy}
@@ -728,7 +815,7 @@ export function EventDetailPage() {
             This event is <strong>{event.status}</strong> — dishes and materials are locked. Review only; no further planning edits or deletions are
             allowed.
           </p>
-          {(event.status === 'READY' || event.status === 'COMPLETED') && (
+          {!isEventCreator && (event.status === 'READY' || event.status === 'COMPLETED') && (
             <button
               type="button"
               disabled={isBusy}
@@ -874,13 +961,19 @@ export function EventDetailPage() {
                   {openRequest.requestCode} · {OPEN_REQUEST_LABEL[openRequest.status] ?? openRequest.status} → View
                 </Link>
               )}
-              {!isAdmin && (
+              {isExecutor && (
                 <>
                   {!openRequest && (
                     <button
                       type="button"
-                      disabled={isBusy || committedLines.length === 0}
-                      title={committedLines.length === 0 ? 'Commit at least one material line first' : 'Request materials from the committed plan'}
+                      disabled={isBusy || committedLines.length === 0 || !dishQuantitiesValid}
+                      title={
+                        !dishQuantitiesValid
+                          ? quantityGateMessage
+                          : committedLines.length === 0
+                            ? 'Commit at least one material line first'
+                            : 'Request materials from the committed plan'
+                      }
                       onClick={openCreateRequest}
                       className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-bold text-primary-foreground shadow-sm transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
                     >
@@ -891,13 +984,15 @@ export function EventDetailPage() {
                   {/* §35–§37: a SEPARATE request row linked to the latest INITIAL. */}
                   <button
                     type="button"
-                    disabled={isBusy || committedLines.length === 0 || event.status === 'CANCELLED' || event.status === 'COMPLETED'}
+                    disabled={isBusy || committedLines.length === 0 || !dishQuantitiesValid || event.status === 'CANCELLED' || event.status === 'COMPLETED'}
                     title={
-                      committedLines.length === 0
-                        ? 'Commit at least one material line first'
-                        : event.status === 'CANCELLED' || event.status === 'COMPLETED'
-                          ? 'This event no longer accepts material requests'
-                          : 'Raise an additional request against the committed plan'
+                      !dishQuantitiesValid
+                        ? quantityGateMessage
+                        : committedLines.length === 0
+                          ? 'Commit at least one material line first'
+                          : event.status === 'CANCELLED' || event.status === 'COMPLETED'
+                            ? 'This event no longer accepts material requests'
+                            : 'Raise an additional request against the committed plan'
                     }
                     onClick={openAdditionalModal}
                     className="inline-flex items-center gap-1.5 rounded-xl border border-primary/40 bg-primary-soft px-3.5 py-2 text-xs font-bold text-primary-deep shadow-sm transition hover:bg-primary-soft/70 disabled:cursor-not-allowed disabled:opacity-50"
@@ -1067,6 +1162,142 @@ export function EventDetailPage() {
         </section>
       )}
 
+      {isAdmin && (
+        <section className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-secondary">Financial Overview</h2>
+              <p className="mt-1 text-[11px] text-muted">P&amp;L-style management view — not statutory accounting.</p>
+            </div>
+            <button type="button" onClick={() => { setExpenseError(null); setShowExpense(true); }} className="inline-flex items-center gap-1.5 rounded-xl border border-primary/40 bg-primary-soft px-3.5 py-2 text-xs font-bold text-primary-deep transition hover:bg-primary-soft/70"><PlusIcon className="h-4 w-4" />Add Expense</button>
+          </div>
+          {statementLoading || !statement ? (
+            <p className="mt-4 text-sm text-secondary">Loading financial statement…</p>
+          ) : (
+            <div className="mt-4 space-y-5">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                {[
+                  { label: 'Cash Donations', value: statement.revenue.cashDonations, tone: 'text-ink' },
+                  { label: 'Charity Stock Utilized', value: statement.inventory.charityValue, tone: 'text-emerald-800' },
+                  { label: 'Expense Stock Consumed', value: statement.inventory.expenseValue, tone: 'text-amber-800' },
+                  { label: 'Other Expenses', value: statement.totals.otherExpenses, tone: 'text-secondary' },
+                  { label: 'Total Resource Utilization', value: statement.totals.resourceUtilization, tone: 'text-primary-deep' },
+                  { label: 'Cash Event Cost', value: statement.totals.cashEventCost, tone: 'text-ink' },
+                  { label: 'Cash Surplus', value: statement.totals.cashResult, tone: statement.totals.cashResult >= 0 ? 'text-emerald-800' : 'text-danger' },
+                  { label: 'Cost / Person', value: statement.totals.costPerPerson, tone: 'text-secondary' },
+                ].map((card) => (
+                  <div key={card.label} className="rounded-xl border border-border bg-background px-4 py-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-secondary">{card.label}</p>
+                    <p className={`mt-1 text-base font-bold tabular-nums ${card.tone}`}>{formatINR(card.value)}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-2.5 text-[11px] leading-relaxed text-secondary">
+                Charity stock ({formatINR(statement.inventory.charityValue)}) is an in-kind contribution: it counts toward resource utilisation but is <strong>not</strong> treated as cash expenditure.
+              </p>
+              <div>
+                <h3 className="text-[11px] font-bold uppercase tracking-[0.2em] text-secondary">Inventory consumption breakdown</h3>
+                <div className="mt-2 overflow-x-auto rounded-xl border border-border">
+                  <table className="w-full min-w-[560px] text-xs">
+                    <thead><tr className="border-b border-border bg-background text-left text-[10px] font-bold uppercase tracking-wider text-secondary">
+                      <th className="px-3 py-2">Item</th><th className="px-3 py-2">Stock Type</th><th className="px-3 py-2 text-right">Quantity</th><th className="px-3 py-2 text-right">FIFO Value</th>
+                    </tr></thead>
+                    <tbody>
+                      {statement.byItem.map((item) => (
+                        <tr key={`${item.foodItemId}-${item.stockType ?? 'UNCLASSIFIED'}`} className="border-b border-border/60 last:border-0">
+                          <td className="px-3 py-2 font-semibold text-ink">{item.name}</td>
+                          <td className="px-3 py-2 uppercase text-secondary">{item.stockType ?? 'Unclassified'}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{item.quantity} {item.unit}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-ink">{formatINR(item.value)}</td>
+                        </tr>
+                      ))}
+                      {statement.byItem.length === 0 && <tr><td colSpan={4} className="px-3 py-4 text-center text-secondary">No inventory consumed.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div>
+                <h3 className="text-[11px] font-bold uppercase tracking-[0.2em] text-secondary">FIFO allocation detail</h3>
+                <div className="mt-2 overflow-x-auto rounded-xl border border-border">
+                  <table className="w-full min-w-[720px] text-xs">
+                    <thead><tr className="border-b border-border bg-background text-left text-[10px] font-bold uppercase tracking-wider text-secondary">
+                      <th className="px-3 py-2">Lot</th><th className="px-3 py-2">Vendor</th><th className="px-3 py-2">Received</th><th className="px-3 py-2">Type</th><th className="px-3 py-2 text-right">Qty</th><th className="px-3 py-2 text-right">Rate</th><th className="px-3 py-2 text-right">Value</th>
+                    </tr></thead>
+                    <tbody>
+                      {statement.fifoDetail.map((line) => (
+                        <tr key={line.allocationId} className="border-b border-border/60 last:border-0">
+                          <td className="px-3 py-2 font-mono text-ink">{line.lotNumber}</td>
+                          <td className="px-3 py-2 text-secondary">{line.vendorName ?? '—'}</td>
+                          <td className="px-3 py-2 tabular-nums text-secondary">{line.receivedDate}</td>
+                          <td className="px-3 py-2 uppercase text-secondary">{line.stockType ?? 'Unclassified'}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{line.quantity}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{formatINR(line.unitCost)}</td>
+                          <td className="px-3 py-2 text-right font-semibold tabular-nums text-ink">{formatINR(line.value)}</td>
+                        </tr>
+                      ))}
+                      {statement.fifoDetail.length === 0 && <tr><td colSpan={7} className="px-3 py-4 text-center text-secondary">No FIFO allocations recorded.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div>
+                <h3 className="text-[11px] font-bold uppercase tracking-[0.2em] text-secondary">Other event expenses</h3>
+                {expenses.length === 0 ? <p className="mt-2 text-xs text-muted">None recorded.</p> : (
+                  <ul className="mt-2 space-y-1">
+                    {expenses.map((expense) => (
+                      <li key={expense.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-xs">
+                        <span className="text-secondary">{expense.category} — {expense.description} <span className="text-muted">({expense.expenseDate})</span></span>
+                        <span className="flex items-center gap-3">
+                          <span className="font-semibold tabular-nums text-ink">{formatINR(expense.amount)}</span>
+                          <button type="button" onClick={() => void removeExpense(expense.id)} className="text-[10px] font-bold uppercase text-danger hover:underline">Delete</button>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {showExpense && event && (
+        <Modal title="Add Event Expense" onClose={() => setShowExpense(false)} maxWidthClass="max-w-md">
+          <div className="space-y-4">
+            <p className="text-sm text-secondary">Non-inventory costs such as gas, transport or labour for <strong className="text-ink">{event.name}</strong>.</p>
+            <div>
+              <FieldLabel htmlFor="expense-category" className="mb-1.5 block text-xs font-semibold text-ink">Category *</FieldLabel>
+              <select id="expense-category" value={expenseCategory} onChange={(e) => setExpenseCategory(e.target.value as ExpenseCategory)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary">
+                {EVENT_EXPENSE_CATEGORIES.map((category) => <option key={category} value={category}>{APP_CONSTANTS.eventExpense.categoryLabels[category]}</option>)}
+              </select>
+            </div>
+            <div>
+              <FieldLabel htmlFor="expense-description" className="mb-1.5 block text-xs font-semibold text-ink">Description *</FieldLabel>
+              <input id="expense-description" type="text" maxLength={APP_CONSTANTS.eventExpense.descriptionMaxLength} value={expenseDescription} onChange={(e) => setExpenseDescription(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <FieldLabel htmlFor="expense-amount" className="mb-1.5 block text-xs font-semibold text-ink">Amount *</FieldLabel>
+                <input id="expense-amount" type="number" min={0.01} step={0.01} value={expenseAmount} onChange={(e) => setExpenseAmount(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
+              </div>
+              <div>
+                <FieldLabel htmlFor="expense-date" className="mb-1.5 block text-xs font-semibold text-ink">Date *</FieldLabel>
+                <input id="expense-date" type="date" value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
+              </div>
+            </div>
+            <div>
+              <FieldLabel htmlFor="expense-reference" className="mb-1.5 block text-xs font-semibold text-ink">Reference <span className="font-normal text-muted">(optional)</span></FieldLabel>
+              <input id="expense-reference" type="text" maxLength={APP_CONSTANTS.eventExpense.referenceMaxLength} value={expenseReference} onChange={(e) => setExpenseReference(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
+            </div>
+            {expenseError && <p role="alert" className="text-xs font-semibold text-danger">{expenseError}</p>}
+            <div className="flex justify-end gap-3">
+              <button type="button" onClick={() => setShowExpense(false)} className="rounded-xl border border-border-strong/60 px-4 py-2.5 text-sm font-semibold text-ink hover:bg-background">Cancel</button>
+              <button type="button" disabled={expenseBusy} onClick={() => void submitExpense()} className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary-dark disabled:opacity-70">{expenseBusy ? 'Saving…' : 'Save Expense'}</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {showEdit && (
         <EventFormModal
           mode="edit"
@@ -1134,10 +1365,6 @@ export function EventDetailPage() {
             <div className="flex flex-wrap items-center justify-end gap-3">
               <button type="button" onClick={() => setShowDispatch(false)} className="rounded-xl border border-border-strong/60 px-4 py-2.5 text-sm font-semibold text-ink hover:bg-background">
                 Cancel
-              </button>
-              <button type="button" disabled={dispatchPdfBusy} onClick={() => void printDispatchChallan()} className="inline-flex items-center gap-1.5 rounded-xl border border-primary/40 bg-white px-4 py-2.5 text-sm font-semibold text-primary-deep transition hover:bg-primary-soft/40 disabled:opacity-60">
-                <TruckIcon className="h-4 w-4" />
-                {dispatchPdfBusy ? 'Generating…' : 'Print / Save as PDF'}
               </button>
               <button type="button" disabled={isBusy || dispatchDestination.trim() === '' || !dispatchVerifiedById} onClick={submitDispatch} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-60">
                 {isBusy ? 'Saving…' : 'Save Dispatch Details'}
@@ -1268,7 +1495,7 @@ export function EventDetailPage() {
         </Modal>
       )}
 
-      {showCreateRequest && !isAdmin && event && (
+      {showCreateRequest && isExecutor && event && (
         <Modal title="Create Material Request" onClose={() => setShowCreateRequest(false)} maxWidthClass="max-w-2xl">
           <div className="space-y-4">
             <p className="text-sm leading-relaxed text-secondary">
@@ -1858,10 +2085,18 @@ function DishCard({
                     {isSavingQuantity ? 'Saving…' : 'Save'}
                   </button>
                 )}
+                {eventDish.quantity === null && (
+                  <p className="w-full text-[10px] font-semibold text-danger">
+                    Quantity required — requests and “Mark as Ready” are blocked.
+                  </p>
+                )}
               </div>
             ) : (
               <p className="mt-1 text-[11px] font-semibold text-secondary">
                 {eventDish.quantity ?? eventHeadcount} {eventDish.quantityUnit ?? APP_CONSTANTS.dishQuantity.fallbackUnit}
+                {eventDish.quantity === null && (
+                  <span className="ml-1.5 text-[10px] font-semibold text-danger">Quantity not set</span>
+                )}
               </p>
             )}
           </div>

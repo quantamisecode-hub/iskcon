@@ -159,7 +159,7 @@ vendorRouter.delete('/:id', adminOnly, async (req: Request, res: Response) => {
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
     });
-    sendSuccess(res, {}, 'Vendor deactivated');
+    sendSuccess(res, {}, 'Vendor deleted');
   } catch (error: unknown) {
     sendRouteError(res, error);
   }

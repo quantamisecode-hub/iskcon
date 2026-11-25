@@ -28,7 +28,17 @@ export const API_ENDPOINTS = {
   stockLots: '/stock-lots',
   fifoPreview: '/fifo/preview',
   inventoryValuation: '/inventory/valuation',
+  eventExpenses: '/event-expenses',
+  financial: '/financial',
 } as const;
+
+export function eventExpensesPath(id?: string): string {
+  return id ? `${API_ENDPOINTS.eventExpenses}/${id}` : API_ENDPOINTS.eventExpenses;
+}
+
+export function financialEventPath(eventId: string): string {
+  return `${API_ENDPOINTS.financial}/events/${eventId}`;
+}
 
 export function materialRequestsPath(id?: string): string {
   return id ? `${API_ENDPOINTS.materialRequests}/${id}` : API_ENDPOINTS.materialRequests;

@@ -96,7 +96,7 @@ async function createFoodItemWithStock(
     const stockIn = await request(app)
       .post(`/api/v1/food-items/${food.id}/stock-in`)
       .set('Cookie', adminCookie)
-      .send({ quantity: stock });
+      .send({ quantity: stock, stockType: 'EXPENSE' });
     expect(stockIn.status).toBe(200);
   }
 
@@ -149,7 +149,7 @@ async function buildApprovedRequest(
   const addDish = await request(app)
     .post(`/api/v1/events/${eventId}/dishes`)
     .set('Cookie', adminCookie)
-    .send({ dishId: dish.body.data.id });
+    .send({ dishId: dish.body.data.id, quantity: 100 });
   expect(addDish.status).toBe(201);
   const eventDishId = addDish.body.data.dishes.at(-1).id as string;
 
@@ -433,7 +433,7 @@ describe('FUNCTIONAL FLOW — Rejection does not change stock', () => {
     const addDish = await request(app)
       .post(`/api/v1/events/${eventId}/dishes`)
       .set('Cookie', admin.cookie)
-      .send({ dishId: dish.body.data.id });
+      .send({ dishId: dish.body.data.id, quantity: 100 });
     expect(addDish.status).toBe(201);
     const eventDishId = addDish.body.data.dishes.at(-1).id as string;
 
@@ -601,7 +601,7 @@ describe('FUNCTIONAL FLOW — Multiple materials', () => {
     const addDish = await request(app)
       .post(`/api/v1/events/${eventId}/dishes`)
       .set('Cookie', admin.cookie)
-      .send({ dishId: dish.body.data.id });
+      .send({ dishId: dish.body.data.id, quantity: 100 });
     expect(addDish.status).toBe(201);
     const eventDishId = addDish.body.data.dishes.at(-1).id as string;
 
@@ -938,7 +938,7 @@ describe('FUNCTIONAL FLOW — Completed/Cancelled event blocks request creation'
     const addDishResp = await request(app)
       .post(`/api/v1/events/${eventId}/dishes`)
       .set('Cookie', admin.cookie)
-      .send({ dishId: dish.body.data.id });
+      .send({ dishId: dish.body.data.id, quantity: 100 });
     expect(addDishResp.status).toBe(201);
     const eventDishId = addDishResp.body.data.dishes.at(-1).id as string;
 
@@ -1005,7 +1005,7 @@ describe('FUNCTIONAL FLOW — Completed/Cancelled event blocks request creation'
     const addDishResp2 = await request(app)
       .post(`/api/v1/events/${eventId}/dishes`)
       .set('Cookie', admin.cookie)
-      .send({ dishId: dish.body.data.id });
+      .send({ dishId: dish.body.data.id, quantity: 100 });
     expect(addDishResp2.status).toBe(201);
     const eventDishId2 = addDishResp2.body.data.dishes.at(-1).id as string;
 

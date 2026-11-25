@@ -26,6 +26,27 @@ datasource db {
 enum Role {
   ADMIN
   EXECUTOR
+  EVENT_CREATOR
+}
+
+/// Financial classification of a stock lot. CHARITY is an in-kind contribution;
+/// EXPENSE is inventory funded by the organisation. Never a cosmetic label.
+/// Legacy lots created before this classification have NULL (unclassified) and
+/// must be reconciled by an ADMIN — the system never fabricates a type for them.
+enum StockType {
+  CHARITY
+  EXPENSE
+}
+
+/// Execution-only workflow assigned to an EXECUTOR. Distinct from requests,
+/// which are owned by the EVENT_CREATOR and approved by an ADMIN.
+enum ExecutionStatus {
+  ASSIGNED
+  IN_PROGRESS
+  PREPARATION_COMPLETED
+  DISTRIBUTION_COMPLETED
+  COMPLETED
+  CANCELLED
 }
 
 /// Application user. Historical references are preserved:
@@ -50,6 +71,8 @@ model User {
   eventsAsAdmin   Event[]  @relation("EventAdmin")
   eventsCreated   Event[]  @relation("EventCreator")
   notifications   Notification[]
+  assignedExecutions ExecutionTask[] @relation("ExecutionAssignee")
+  createdExecutions  ExecutionTask[] @relation("ExecutionCreator")
   requestsRequested MaterialRequest[] @relation("RequestRequester")
   requestsAdmin     MaterialRequest[] @relation("RequestAdmin")
   requestsApproved  MaterialRequest[] @relation("RequestApprover")
@@ -62,6 +85,7 @@ model User {
   allocationsCreated StockAllocation[] @relation("StockAllocationCreator")
   returnsAdmin      MaterialReturn[] @relation("ReturnAdmin")
   returnTimeline    MaterialReturnTimeline[]
+  eventExpenses     EventExpense[] @relation("EventExpenseCreator")
 
   @@index([role])
   @@index([isActive])
@@ -276,6 +300,10 @@ model StockLot {
   lotNumber         String    @unique @db.VarChar(50)
   foodItemId        String    @db.Char(36)
   vendorId          String?   @db.Char(36)
+  /// Financial classification inherited from Stock Inward. NULL = legacy/unclassified.
+  stockType         StockType?
+  /// Donor credited for CHARITY stock; NULL for EXPENSE and legacy lots.
+  donorName         String?   @db.VarChar(200)
   /// Null for legacy opening balance where no purchase date is known.
   purchaseDate      DateTime? @db.Date
   receivedDate      DateTime  @db.Date
@@ -302,6 +330,7 @@ model StockLot {
   @@index([foodItemId, status, receivedDate, createdAt], name: "StockLot_fifo_idx")
   @@index([vendorId])
   @@index([status])
+  @@index([stockType])
 }
 
 /// Immutable record of which lots were consumed by a movement.
@@ -391,11 +420,38 @@ model Event {
   dishes  EventDish[]
   materialRequests MaterialRequest[]
   returns MaterialReturn[]
+  /// ADMIN-recorded non-inventory event expenses (gas, transport, labour, ...).
+  expenses EventExpense[]
+  executions ExecutionTask[]
 
   @@index([adminId])
   @@index([createdBy])
   @@index([status])
   @@index([eventDate])
+}
+
+/// ADMIN-recorded event expense that is NOT inventory (fuel, transport, labour...).
+/// There is no pre-existing expense model; this is the single source of truth for
+/// "other event expenses". Amounts are always supplied by an ADMIN and audited.
+model EventExpense {
+  id          String   @id @default(uuid()) @db.Char(36)
+  eventId     String   @db.Char(36)
+  category    String   @db.VarChar(50) // GAS | TRANSPORT | LABOUR | OTHER
+  description String   @db.VarChar(255)
+  amount      Decimal  @db.Decimal(14, 2)
+  expenseDate DateTime @db.Date
+  reference   String?  @db.VarChar(100)
+  notes       String?  @db.Text
+  createdBy   String?  @db.Char(36)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  event   Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  creator User? @relation("EventExpenseCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([eventId])
+  @@index([category])
+  @@index([expenseDate])
 }
 
 /// Atomic per-year counter guaranteeing unique event codes (EVT-YYYY-NNNNNN).
@@ -626,6 +682,33 @@ model MaterialRequestTimeline {
 /// `reference*` points at the originating entity (e.g. MATERIAL_REQUEST / request.id).
 /// `category` + `priority` implement the Phase 7 notification matrix (§49);
 /// they default so every pre-existing row stays valid without a data migration.
+/// A real execution assignment for an EXECUTOR. Created by an ADMIN or the
+/// owning EVENT_CREATOR after the material requirement has been approved and
+/// issued. Status transitions are strictly ordered and idempotent.
+model ExecutionTask {
+  id                     String          @id @default(uuid()) @db.Char(36)
+  eventId                String          @db.Char(36)
+  assigneeId             String          @db.Char(36)
+  status                 ExecutionStatus @default(ASSIGNED)
+  notes                  String?         @db.Text
+  startedAt              DateTime?
+  preparationCompletedAt DateTime?
+  distributionCompletedAt DateTime?
+  completedAt            DateTime?
+  cancelledAt            DateTime?
+  createdBy              String          @db.Char(36)
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+
+  event   Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  assignee User @relation("ExecutionAssignee", fields: [assigneeId], references: [id], onDelete: Restrict)
+  creator  User @relation("ExecutionCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@index([eventId, status])
+  @@index([assigneeId, status])
+  @@index([status])
+}
+
 model Notification {
   id            String   @id @default(uuid()) @db.Char(36)
   userId        String   @db.Char(36)

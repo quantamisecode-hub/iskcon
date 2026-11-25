@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { safeTargetForRole } from '../features/auth/utils/roleHome';
 import { FieldLabel } from '../components/ui/FieldLabel';
 
 
@@ -26,16 +27,16 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const { isAuthenticated, status, login } = useAuth();
+  const { isAuthenticated, status, login, user } = useAuth();
   // Set by ProtectedRoute so the user lands back on the page they asked for.
   const redirectTo = safeRedirectTarget((location.state as { from?: unknown } | null)?.from);
 
   // Already signed in? Skip the form.
   useEffect(() => {
     if (status === 'ready' && isAuthenticated) {
-      navigate(redirectTo, { replace: true });
+      navigate(safeTargetForRole(user?.role, redirectTo), { replace: true });
     }
-  }, [status, isAuthenticated, navigate, redirectTo]);
+  }, [status, isAuthenticated, navigate, redirectTo, user?.role]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -43,8 +44,10 @@ export function LoginPage() {
     setIsLoading(true);
 
     try {
-      await login(email.trim().toLowerCase(), password);
-      navigate(redirectTo, { replace: true });
+      const profile = await login(email.trim().toLowerCase(), password);
+      // Never send a role to a page its guard would reject (e.g. an admin-only
+      // target remembered from a previous session -> /unauthorized).
+      navigate(safeTargetForRole(profile.role, redirectTo), { replace: true });
     } catch (err) {
       const apiMessage = (err as {
         response?: { data?: { error?: { message?: string } } };
@@ -221,11 +224,6 @@ export function LoginPage() {
             >
               Contact the administrator
             </a>
-            <p className="mt-4 text-[11px] leading-relaxed text-muted">
-              Secured with HTTP-only session cookies.
-              <br />
-              Your password never touches browser storage.
-            </p>
           </div>
         </div>
       </main>

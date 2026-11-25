@@ -15,6 +15,7 @@ export interface StockLotListFilters {
   foodItemId?: string;
   vendorId?: string;
   status?: string;
+  stockType?: 'CHARITY' | 'EXPENSE' | 'UNCLASSIFIED';
   page: number;
   pageSize: number;
 }
@@ -26,6 +27,8 @@ export interface StockLotRow {
   foodItemName: string;
   vendorId: string | null;
   vendorName: string | null;
+  stockType: 'CHARITY' | 'EXPENSE' | null;
+  donorName: string | null;
   purchaseDate: string | null;
   receivedDate: string;
   quantityReceived: number;
@@ -79,6 +82,8 @@ export function serializeStockLot(lot: StockLotWithRelations): StockLotRow {
     foodItemName: lot.foodItem.name,
     vendorId: lot.vendorId ?? null,
     vendorName: lot.vendor?.name ?? null,
+    stockType: lot.stockType ?? null,
+    donorName: lot.donorName ?? null,
     purchaseDate: lot.purchaseDate ? dateString(lot.purchaseDate) : null,
     receivedDate: dateString(lot.receivedDate),
     quantityReceived: Number(lot.quantityReceived),
@@ -103,6 +108,11 @@ export const stockLotService = {
       ...(filters.foodItemId ? { foodItemId: filters.foodItemId } : {}),
       ...(filters.vendorId ? { vendorId: filters.vendorId } : {}),
       ...(filters.status ? { status: filters.status } : {}),
+      ...(filters.stockType === 'UNCLASSIFIED'
+        ? { stockType: null }
+        : filters.stockType
+          ? { stockType: filters.stockType }
+          : {}),
     };
     const [result, valuationRows] = await Promise.all([
       stockLotRepository.list({

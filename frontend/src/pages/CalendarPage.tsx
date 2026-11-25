@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useAuth } from '../hooks/useAuth';
 import { Link, useNavigate } from 'react-router-dom';
 import { fetchCalendarEvents } from '../features/events/api/events.api';
 import { EventStatusBadge, EVENT_STATUS_CHIP, EVENT_STATUS_BAR } from '../features/events/components/EventStatusBadge';
@@ -110,6 +111,9 @@ function layoutDayEvents(dayEvents: CalendarEvent[]): LaidOutEvent[] {
 
 export function CalendarPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  // Executors may view the calendar but cannot create events.
+  const canCreate = user?.role !== 'EXECUTOR';
   const [view, setView] = useState<ViewMode>('month');
   const [cursor, setCursor] = useState<Date>(() => new Date());
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -226,14 +230,16 @@ export function CalendarPage() {
             <p className="mt-1 text-sm text-secondary">Manage events, schedules and material planning</p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => navigate('/events/new')}
-          className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground shadow-lift transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
-        >
-          <PlusIcon className="h-4 w-4" />
-          Create Event
-        </button>
+        {canCreate && (
+          <button
+            type="button"
+            onClick={() => navigate('/events/new')}
+            className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground shadow-lift transition hover:bg-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+          >
+            <PlusIcon className="h-4 w-4" />
+            Create Event
+          </button>
+        )}
       </div>
 
       {/* Toolbar — navigation + view switcher */}
@@ -530,6 +536,8 @@ function AgendaList({
   className?: string;
   showEmptyDays?: boolean;
 }) {
+  const { user: agendaUser } = useAuth();
+  const canCreateAgendaEvent = agendaUser?.role !== 'EXECUTOR';
   const visibleDays = days.filter((cell) => showEmptyDays || (eventsByDate.get(cell.date) ?? []).length > 0);
   const totalEvents = days.reduce((sum, cell) => sum + (eventsByDate.get(cell.date)?.length ?? 0), 0);
 
@@ -539,9 +547,11 @@ function AgendaList({
         <div className="rounded-2xl border border-dashed border-border-strong/70 bg-card p-10 text-center">
           <p className="text-base font-bold text-ink">No events in this period</p>
           <p className="mt-1 text-sm text-secondary">Plan the next Mahaprasadam or festival event.</p>
-          <button type="button" onClick={() => onCreate(toDateOnlyString(new Date()))} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary-dark">
-            <PlusIcon className="h-4 w-4" /> Create Event
-          </button>
+          {canCreateAgendaEvent && (
+            <button type="button" onClick={() => onCreate(toDateOnlyString(new Date()))} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary-dark">
+              <PlusIcon className="h-4 w-4" /> Create Event
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-3">

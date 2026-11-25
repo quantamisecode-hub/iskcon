@@ -41,6 +41,10 @@ export const vendorRepository = {
     return prisma.vendor.update({ where: { id }, data });
   },
 
+  async delete(id: string): Promise<Vendor> {
+    return prisma.vendor.delete({ where: { id } });
+  },
+
   async count(where: Prisma.VendorWhereInput): Promise<number> {
     return prisma.vendor.count({ where });
   },

@@ -55,14 +55,15 @@ export function App() {
               </ProtectedRoute>
             }
           >
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/calendar" element={<CalendarPage />} />
+            {/* Event viewing/creation is available to ADMIN, EXECUTOR and EVENT_CREATOR. */}
+            <Route path="/dashboard" element={<RoleGuard allowedRoles={['ADMIN', 'EXECUTOR']}><DashboardPage /></RoleGuard>} />
+            <Route path="/calendar" element={<RoleGuard allowedRoles={['ADMIN', 'EXECUTOR', 'EVENT_CREATOR']}><CalendarPage /></RoleGuard>} />
 
             {/* Events */}
-            <Route path="/events" element={<EventsListPage />} />
+            <Route path="/events" element={<RoleGuard allowedRoles={['ADMIN', 'EXECUTOR', 'EVENT_CREATOR']}><EventsListPage /></RoleGuard>} />
             <Route path="/events/calendar" element={<Navigate to="/calendar" replace />} />
-            <Route path="/events/new" element={<EventNewPage />} />
-            <Route path="/events/:id" element={<EventDetailPage />} />
+            <Route path="/events/new" element={<RoleGuard allowedRoles={['ADMIN', 'EVENT_CREATOR']}><EventNewPage /></RoleGuard>} />
+            <Route path="/events/:id" element={<RoleGuard allowedRoles={['ADMIN', 'EXECUTOR', 'EVENT_CREATOR']}><EventDetailPage /></RoleGuard>} />
 
             {/* Dishes — Dish Master is ADMIN-only */}
             <Route
@@ -157,15 +158,15 @@ export function App() {
               }
             />
 
-            {/* Material Requests (both roles, service enforces scope) */}
-            <Route path="/requests" element={<RequestsPage />} />
-            <Route path="/requests/:id" element={<RequestDetailPage />} />
+            {/* Material Requests — staff only; EVENT_CREATOR has no request access. */}
+            <Route path="/requests" element={<RoleGuard allowedRoles={['ADMIN', 'EXECUTOR']}><RequestsPage /></RoleGuard>} />
+            <Route path="/requests/:id" element={<RoleGuard allowedRoles={['ADMIN', 'EXECUTOR']}><RequestDetailPage /></RoleGuard>} />
 
-            {/* Material Returns (both roles; list + review scoped server-side) */}
-            <Route path="/returns" element={<ReturnsPage />} />
-            <Route path="/returns/:id" element={<ReturnDetailPage />} />
+            {/* Material Returns — staff only. */}
+            <Route path="/returns" element={<RoleGuard allowedRoles={['ADMIN', 'EXECUTOR']}><ReturnsPage /></RoleGuard>} />
+            <Route path="/returns/:id" element={<RoleGuard allowedRoles={['ADMIN', 'EXECUTOR']}><ReturnDetailPage /></RoleGuard>} />
 
-            <Route path="/notifications" element={<NotificationsPage />} />
+            <Route path="/notifications" element={<RoleGuard allowedRoles={['ADMIN', 'EXECUTOR']}><NotificationsPage /></RoleGuard>} />
 
             {/* Users — ADMIN only */}
             <Route
@@ -220,8 +221,8 @@ export function App() {
               }
             />
 
-            {/* Profile — both roles */}
-            <Route path="/profile" element={<ProfilePage />} />
+            {/* Profile — staff only */}
+            <Route path="/profile" element={<RoleGuard allowedRoles={['ADMIN', 'EXECUTOR']}><ProfilePage /></RoleGuard>} />
           </Route>
 
           <Route path="/unauthorized" element={<UnauthorizedPage />} />

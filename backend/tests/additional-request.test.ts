@@ -119,7 +119,7 @@ async function buildEventWithInitial(adminCookie: string, executorCookie: string
   const addDish = await request(app)
     .post(`/api/v1/events/${eventId}/dishes`)
     .set('Cookie', adminCookie)
-    .send({ dishId: dish.body.data.id });
+    .send({ dishId: dish.body.data.id, quantity: 100 });
   const eventDishId = addDish.body.data.dishes.at(-1).id as string;
   const addMaterial = await request(app)
     .post(`/api/v1/event-dishes/${eventDishId}/materials`)

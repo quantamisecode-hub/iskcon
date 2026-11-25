@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { createEvent, updateEvent } from '../api/events.api';
 import { useAuth } from '../../../hooks/useAuth';
 import { InfoIcon } from '../../../components/ui/icons';
-import { APP_CONSTANTS, EVENT_TYPES, SERVING_TYPES } from '../../../constants/appConstants';
-import { displayDateToIso, isoDateToDisplay, time24ToParts, timePartsTo24 } from '../../../utils/dateTime';
+import { DatePicker } from '../../../components/ui/DatePicker';
+import { displayDateToIso, isoDateToDisplay } from '../../../utils/dateTime';
+import { APP_CONSTANTS, EVENT_TYPES, LEGACY_EVENT_TYPES, SERVING_TYPES } from '../../../constants/appConstants';
 import type { EventDetail } from '../types';
 import { FieldLabel } from '../../../components/ui/FieldLabel';
 
@@ -30,11 +31,10 @@ export function EventForm({
   const { user } = useAuth();
   const [name, setName] = useState(event?.name ?? '');
   const [description, setDescription] = useState(event?.description ?? '');
-  const initialTime = time24ToParts(event?.startTime ?? '10:00');
+  // The field shows DD/MM/YYYY; the API receives YYYY-MM-DD on submit.
   const [eventDate, setEventDate] = useState(isoDateToDisplay(event?.eventDate ?? initialDate ?? ''));
-  const [timeHour, setTimeHour] = useState(initialTime.hour);
-  const [timeMinute, setTimeMinute] = useState(initialTime.minute);
-  const [timePeriod, setTimePeriod] = useState<'AM' | 'PM'>(initialTime.period);
+  // Native time input uses the API's canonical HH:MM (24-hour) value.
+  const [startTime, setStartTime] = useState(event?.startTime ?? '10:00');
   const [numberOfPeople, setNumberOfPeople] = useState<string>(String(event?.numberOfPeople ?? ''));
   const [status, setStatus] = useState<'DRAFT' | 'PLANNING'>('DRAFT');
   const [eventType, setEventType] = useState(event?.eventType ?? '');
@@ -50,7 +50,14 @@ export function EventForm({
 
   useEffect(() => {
     setError(null);
-  }, [name, eventDate, timeHour, timeMinute, timePeriod, numberOfPeople, status]);
+  }, [name, eventDate, startTime, numberOfPeople, status]);
+
+  useEffect(() => {
+    if (event) {
+      setEventDate(isoDateToDisplay(event.eventDate ?? ''));
+      setStartTime(event.startTime ?? '10:00');
+    }
+  }, [event?.id, event?.eventDate, event?.startTime]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -74,7 +81,10 @@ export function EventForm({
       setError('Enter a valid date in DD/MM/YYYY format.');
       return;
     }
-    const startTime = timePartsTo24(timeHour, timeMinute, timePeriod);
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) {
+      setError('Enter a valid start time.');
+      return;
+    }
     if (!Number.isInteger(people) || people <= 0) {
       setError('Number of people must be a positive whole number.');
       return;
@@ -125,7 +135,9 @@ export function EventForm({
   const scopeHint =
     user?.role === 'EXECUTOR'
       ? 'This event is created inside your assigned Admin’s scope automatically — you cannot choose another Admin.'
-      : 'This event belongs to your own Admin scope automatically.';
+      : user?.role === 'EVENT_CREATOR'
+        ? 'This event will be created under your own account. You can create and view it, but cannot edit or manage it afterwards.'
+        : 'This event belongs to your own Admin scope automatically.';
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5" noValidate>
@@ -177,6 +189,9 @@ export function EventForm({
             {EVENT_TYPES.map((type) => (
               <option key={type} value={type}>{type}</option>
             ))}
+            {LEGACY_EVENT_TYPES.filter((type) => type === eventType).map((type) => (
+              <option key={type} value={type}>{type} (legacy)</option>
+            ))}
           </select>
         </div>
 
@@ -185,18 +200,13 @@ export function EventForm({
             <FieldLabel htmlFor="event-date" className="mb-1.5 block text-xs font-semibold text-ink">
               Date *
             </FieldLabel>
-            <input
+            <DatePicker
               id="event-date"
-              type="text"
-              inputMode="numeric"
-              required
-              maxLength={10}
               value={eventDate}
-              onChange={(e) => setEventDate(e.target.value)}
-              placeholder="DD/MM/YYYY"
-              className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm text-ink placeholder:text-muted outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
+              onChange={setEventDate}
+              required
             />
-            <p className="mt-1.5 text-[10px] text-muted">DD/MM/YYYY (e.g. 20/11/2026).</p>
+            <p className="mt-1.5 text-[10px] text-muted">DD/MM/YYYY — click the calendar icon to pick a date.</p>
           </div>
           <div>
             <FieldLabel htmlFor="event-people" className="mb-1.5 block text-xs font-semibold text-ink">
@@ -237,39 +247,15 @@ export function EventForm({
             <FieldLabel htmlFor="event-start" className="mb-1.5 block text-xs font-semibold text-ink">
               Start time *
             </FieldLabel>
-            <div className="flex gap-2">
-              <select
-                id="event-start"
-                aria-label="Hour"
-                value={timeHour}
-                onChange={(e) => setTimeHour(e.target.value)}
-                className="w-full rounded-xl border border-border-strong/70 bg-white px-2 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
-              >
-                {Array.from({ length: 12 }, (_, index) => String(index + 1)).map((hour) => (
-                  <option key={hour} value={hour}>{hour}</option>
-                ))}
-              </select>
-              <select
-                aria-label="Minute"
-                value={timeMinute}
-                onChange={(e) => setTimeMinute(e.target.value)}
-                className="w-full rounded-xl border border-border-strong/70 bg-white px-2 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
-              >
-                {Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0')).map((minute) => (
-                  <option key={minute} value={minute}>{minute}</option>
-                ))}
-              </select>
-              <select
-                aria-label="AM or PM"
-                value={timePeriod}
-                onChange={(e) => setTimePeriod(e.target.value as 'AM' | 'PM')}
-                className="w-full rounded-xl border border-border-strong/70 bg-white px-2 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
-              >
-                <option value="AM">AM</option>
-                <option value="PM">PM</option>
-              </select>
-            </div>
-            <p className="mt-1.5 text-[10px] text-muted">12-hour format with AM/PM.</p>
+            <input
+              id="event-start"
+              type="time"
+              required
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+              className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
+            />
+            <p className="mt-1.5 text-[10px] text-muted">24-hour format (HH:MM).</p>
           </div>
           {mode === 'create' && (
             <div>

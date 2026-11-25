@@ -93,6 +93,16 @@ async function loadEventForActor(user: Actor, eventId: string) {
   return event;
 }
 
+/** Material demand is only valid once every dish carries an explicit positive quantity. */
+function assertDishQuantities(event: Awaited<ReturnType<typeof loadEventForActor>>): void {
+  const missing = event.dishes.filter((d) => d.quantity === null || Number(d.quantity) <= 0);
+  if (missing.length > 0) {
+    throw badRequest(
+      `Set a positive quantity for every dish before requesting materials: ${missing.map((d) => d.dish.name).join(', ')}.`,
+    );
+  }
+}
+
 async function loadRequestForActor(user: Actor, requestId: string): Promise<SerializedMaterialRequest> {
   const request = await materialRequestRepository.findById(requestId);
   if (!request) throw notFound();
@@ -146,6 +156,7 @@ export const materialRequestService = {
     }
 
     const event = await loadEventForActor(user, input.eventId);
+    assertDishQuantities(event);
 
     // Phase 7 extension: cancelled or completed events never accept new demand.
     if (event.status === 'CANCELLED') {
@@ -300,6 +311,7 @@ export const materialRequestService = {
     }
 
     const event = await loadEventForActor(user, input.eventId);
+    assertDishQuantities(event);
     if (event.status === 'CANCELLED') {
       throw conflict('Additional material requests are not allowed for cancelled events.');
     }

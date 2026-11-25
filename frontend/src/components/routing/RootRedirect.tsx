@@ -9,11 +9,17 @@ import { PageLoader } from '../common/PageLoader';
  *  - session still being restored -> loader (no wrong-way flash)
  */
 export function RootRedirect() {
-  const { isAuthenticated, status } = useAuth();
+  const { isAuthenticated, status, user } = useAuth();
 
   if (status === 'loading') {
     return <PageLoader label="Checking your session…" />;
   }
 
-  return <Navigate to={isAuthenticated ? '/dashboard' : '/login'} replace />;
+  // Event Creators have no dashboard — their landing page is the events list.
+  const target = !isAuthenticated
+    ? '/login'
+    : user?.role === 'EVENT_CREATOR'
+      ? '/events'
+      : '/dashboard';
+  return <Navigate to={target} replace />;
 }

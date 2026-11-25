@@ -73,6 +73,10 @@ async function resolveScope(user: Actor): Promise<Prisma.EventWhereInput> {
   if (user.role === 'ADMIN') {
     return { adminId: user.id };
   }
+  if (user.role === 'EVENT_CREATOR') {
+    // Creators see only what they created. `{ OR: [...] }` keeps isInScope working.
+    return { OR: [{ createdBy: user.id }] };
+  }
   const assignment = await assignmentRepository.findActiveByExecutor(user.id);
   if (!assignment) {
     return { adminId: '__unassigned__' }; // matches no row
@@ -297,18 +301,16 @@ export const eventService = {
     status?: 'DRAFT' | 'PLANNING';
   }, context: { ipAddress?: string; userAgent?: string }) {
     let adminId: string;
-    if (user.role === 'ADMIN') {
+    if (user.role === 'ADMIN' || user.role === 'EVENT_CREATOR') {
+      // A creator owns the event they create; they are not assigned to an admin.
       adminId = user.id;
     } else {
-      const assignment = await assignmentRepository.findActiveByExecutor(user.id);
-      if (!assignment) {
-        throw new ApiError({
-          statusCode: 403,
-          code: ERROR_CODES.FORBIDDEN,
-          message: 'You are not assigned to an admin yet. Ask an administrator to assign you first.',
-        });
-      }
-      adminId = assignment.adminId;
+      // Executors may view events but never create them.
+      throw new ApiError({
+        statusCode: 403,
+        code: ERROR_CODES.FORBIDDEN,
+        message: 'Only an Admin or Event Creator can create an event.',
+      });
     }
 
     const event = await transactionWithRetry(async (tx) => {
@@ -324,9 +326,9 @@ export const eventService = {
           numberOfPeople: input.numberOfPeople,
           location: input.location ?? null,
           notes: input.notes ?? null,
-          donationAmount: input.donationAmount ?? null,
-          donationGivenBy: input.donationGivenBy ?? null,
-          trNumber: input.trNumber ?? null,
+          donationAmount: user.role === 'ADMIN' ? input.donationAmount ?? null : null,
+          donationGivenBy: user.role === 'ADMIN' ? input.donationGivenBy ?? null : null,
+          trNumber: user.role === 'ADMIN' ? input.trNumber ?? null : null,
           eventType: input.eventType ?? null,
           servingType: input.servingType ?? null,
           contactPerson: input.contactPerson ?? null,
@@ -406,9 +408,12 @@ export const eventService = {
     if (input.numberOfPeople !== undefined) data.numberOfPeople = input.numberOfPeople;
     if (input.location !== undefined) data.location = input.location ?? null;
     if (input.notes !== undefined) data.notes = input.notes ?? null;
-    if (input.donationAmount !== undefined) data.donationAmount = input.donationAmount ?? null;
-    if (input.donationGivenBy !== undefined) data.donationGivenBy = input.donationGivenBy ?? null;
-    if (input.trNumber !== undefined) data.trNumber = input.trNumber ?? null;
+    // Donation data is ADMIN-only regardless of what the client sends.
+    if (user.role === 'ADMIN') {
+      if (input.donationAmount !== undefined) data.donationAmount = input.donationAmount ?? null;
+      if (input.donationGivenBy !== undefined) data.donationGivenBy = input.donationGivenBy ?? null;
+      if (input.trNumber !== undefined) data.trNumber = input.trNumber ?? null;
+    }
     if (input.eventType !== undefined) data.eventType = input.eventType ?? null;
     if (input.servingType !== undefined) data.servingType = input.servingType ?? null;
     if (input.contactPerson !== undefined) data.contactPerson = input.contactPerson ?? null;
@@ -452,6 +457,17 @@ export const eventService = {
         code: ERROR_CODES.CONFLICT,
         message: `Cannot move event from ${event.status} to ${status}.`,
       });
+    }
+
+    // READY is the planning gate: every dish must carry an explicit positive
+    // quantity. Headcount is only a display fallback, never a valid quantity.
+    if (status === 'READY') {
+      const missing = event.dishes.filter((d) => d.quantity === null || Number(d.quantity) <= 0);
+      if (missing.length > 0) {
+        throw badRequest(
+          `Set a positive quantity for every dish before marking the event ready: ${missing.map((d) => d.dish.name).join(', ')}.`,
+        );
+      }
     }
 
     const updateData: Prisma.EventUpdateInput = { status: status as never };
