@@ -113,8 +113,42 @@ export const foodItemService = {
       foodItemRepository.findAll({ where, skip: (filters.page - 1) * filters.pageSize, take: filters.pageSize }),
       foodItemRepository.count(where),
     ]);
+
+    const itemIds = foodItems.map((f) => f.id);
+    const activeLotSums = itemIds.length > 0 ? await prisma.stockLot.groupBy({
+      by: ['foodItemId'],
+      where: {
+        foodItemId: { in: itemIds },
+        status: { in: ['AVAILABLE', 'PARTIALLY_CONSUMED'] },
+        quantityRemaining: { gt: 0 },
+      },
+      _sum: { quantityRemaining: true },
+    }) : [];
+
+    const lotSumMap = new Map<string, Prisma.Decimal>();
+    for (const row of activeLotSums) {
+      if (row._sum.quantityRemaining) {
+        lotSumMap.set(row.foodItemId, row._sum.quantityRemaining);
+      }
+    }
+
+    const enrichedFoodItems = foodItems.map((item) => {
+      const lotQty = lotSumMap.get(item.id) ?? new Prisma.Decimal(0);
+      const invQty = item.inventory?.currentQuantity ?? new Prisma.Decimal(0);
+      const effectiveQty = Prisma.Decimal.max(invQty, lotQty);
+
+      const effectiveInventory = item.inventory
+        ? { ...item.inventory, currentQuantity: effectiveQty }
+        : { id: `auto-${item.id}`, foodItemId: item.id, currentQuantity: effectiveQty, updatedAt: new Date() };
+
+      return {
+        ...item,
+        inventory: effectiveInventory,
+      };
+    });
+
     return {
-      foodItems,
+      foodItems: enrichedFoodItems,
       total,
       page: filters.page,
       pageSize: filters.pageSize,
@@ -624,9 +658,21 @@ export const foodItemService = {
       return { status: 'NOT_FOUND' as const, food };
     }
 
-    const inventory = await inventoryRepository.findByFoodItemId(foodItemId);
-    // Decimal at rest → number at the API boundary.
-    const currentQty = Number(inventory?.currentQuantity ?? 0);
+    const [inventory, activeLotSum] = await Promise.all([
+      inventoryRepository.findByFoodItemId(foodItemId),
+      prisma.stockLot.aggregate({
+        where: {
+          foodItemId,
+          status: { in: ['AVAILABLE', 'PARTIALLY_CONSUMED'] },
+          quantityRemaining: { gt: 0 },
+        },
+        _sum: { quantityRemaining: true },
+      }),
+    ]);
+    const lotQty = Number(activeLotSum._sum.quantityRemaining ?? 0);
+    const invQty = Number(inventory?.currentQuantity ?? 0);
+    const currentQty = Math.max(invQty, lotQty);
+
     const minStock = food.minimumStock;
     const reorderLvl = food.reorderLevel;
 
@@ -693,7 +739,26 @@ export const foodItemService = {
         inScopeRequests = relatedRequests.filter((r) => r.request.requestedById === actor.id);
       }
     }
-    const currentQty = Number(inventory?.currentQuantity ?? 0);
+    const lotTotalQty = activeLots.reduce((sum, lot) => sum + Number(lot.quantityRemaining), 0);
+    const invQty = Number(inventory?.currentQuantity ?? 0);
+    const currentQty = Math.max(invQty, lotTotalQty);
+
+    let calculatedStatus = status.status;
+    if (currentQty > 0 && status.status === 'OUT_OF_STOCK') {
+      if (currentQty <= food.minimumStock) calculatedStatus = 'CRITICAL';
+      else if (currentQty <= food.reorderLevel) calculatedStatus = 'LOW';
+      else calculatedStatus = 'NORMAL';
+    }
+
+    // Auto-heal Inventory row in DB if missing or desynced
+    if (!inventory || Number(inventory.currentQuantity) < currentQty) {
+      void prisma.inventory.upsert({
+        where: { foodItemId },
+        update: { currentQuantity: new Prisma.Decimal(currentQty) },
+        create: { foodItemId, currentQuantity: new Prisma.Decimal(currentQty) },
+      }).catch(() => {});
+    }
+
     let inventoryValueDecimal = new Prisma.Decimal(0);
     for (const lot of activeLots) {
       if (lot.unitCost === null) continue;
@@ -701,9 +766,14 @@ export const foodItemService = {
     }
     return {
       foodItem: food,
-      inventory: inventory ? { ...inventory, currentQuantity: currentQty } : null,
+      inventory: {
+        id: inventory?.id ?? `auto-${foodItemId}`,
+        foodItemId,
+        currentQuantity: currentQty,
+        updatedAt: inventory?.updatedAt ?? new Date(),
+      },
       currentQuantity: currentQty,
-      status: status.status,
+      status: calculatedStatus,
       stockSummary: {
         currentQuantity: currentQty,
         minimumStock: food.minimumStock,
@@ -743,22 +813,44 @@ export const foodItemService = {
 
   /** KPIs for Current Stock header (deterministic, backend-calculated). */
   async stockSummary() {
-    const rows = await prisma.inventory.findMany({
-      include: { foodItem: { select: { isActive: true, minimumStock: true, reorderLevel: true } } },
-    });
-    let totalItems = 0;
+    const [foodItems, activeLotSums] = await Promise.all([
+      prisma.foodItem.findMany({
+        where: { isActive: true },
+        select: { id: true, minimumStock: true, reorderLevel: true, inventory: { select: { currentQuantity: true } } },
+      }),
+      prisma.stockLot.groupBy({
+        by: ['foodItemId'],
+        where: {
+          status: { in: ['AVAILABLE', 'PARTIALLY_CONSUMED'] },
+          quantityRemaining: { gt: 0 },
+        },
+        _sum: { quantityRemaining: true },
+      }),
+    ]);
+
+    const lotMap = new Map<string, number>();
+    for (const lot of activeLotSums) {
+      if (lot._sum.quantityRemaining) {
+        lotMap.set(lot.foodItemId, Number(lot._sum.quantityRemaining));
+      }
+    }
+
+    let totalItems = foodItems.length;
     let totalStockLines = 0;
     let lowStock = 0;
     let reorderRequired = 0;
     let outOfStock = 0;
     let healthy = 0;
-    for (const row of rows) {
-      if (row.foodItem.isActive) totalItems += 1;
+
+    for (const item of foodItems) {
       totalStockLines += 1;
-      const qty = Number(row.currentQuantity);
+      const lotQty = lotMap.get(item.id) ?? 0;
+      const invQty = Number(item.inventory?.currentQuantity ?? 0);
+      const qty = Math.max(invQty, lotQty);
+
       if (qty === 0) outOfStock += 1;
-      else if (qty <= row.foodItem.minimumStock) lowStock += 1;
-      else if (qty <= row.foodItem.reorderLevel) reorderRequired += 1;
+      else if (qty <= item.minimumStock) lowStock += 1;
+      else if (qty <= item.reorderLevel) reorderRequired += 1;
       else healthy += 1;
     }
     return { totalItems, totalStockLines, lowStock, reorderRequired, outOfStock, healthy };

@@ -1,4 +1,5 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { prisma } from '../repositories/user.repository.js';
 import { stockLotRepository, type StockLotWithAllocations, type StockLotWithRelations } from '../repositories/stockLot.repository.js';
 import { previewFifoAllocation, toDecimal, type FifoPreview } from './fifoInventory.service.js';
 import { ApiError } from '../middleware/error.middleware.js';
@@ -204,6 +205,23 @@ export const stockLotService = {
     }
 
     const updated = await stockLotRepository.update(id, data);
+
+    // Re-sync Inventory.currentQuantity for this foodItem so Current Stock is always accurate
+    const sumResult = await prisma.stockLot.aggregate({
+      where: {
+        foodItemId: updated.foodItemId,
+        status: { in: ['AVAILABLE', 'PARTIALLY_CONSUMED'] },
+        quantityRemaining: { gt: 0 },
+      },
+      _sum: { quantityRemaining: true },
+    });
+    const totalRemaining = sumResult._sum.quantityRemaining ?? new Prisma.Decimal(0);
+    await prisma.inventory.upsert({
+      where: { foodItemId: updated.foodItemId },
+      update: { currentQuantity: totalRemaining },
+      create: { foodItemId: updated.foodItemId, currentQuantity: totalRemaining },
+    });
+
     return serializeStockLot(updated);
   },
 
