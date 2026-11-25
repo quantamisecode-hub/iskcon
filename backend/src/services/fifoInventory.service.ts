@@ -323,16 +323,16 @@ export async function allocateStockFifo(tx: Prisma.TransactionClient, input: Fif
     : [];
 
   const inventory = await tx.inventory.findUnique({ where: { foodItemId: input.foodItemId } });
-  const balanceBefore = toDecimal(inventory?.currentQuantity ?? 0);
+  const rawBalance = toDecimal(inventory?.currentQuantity ?? 0);
   let available = lots.reduce((sum, lot) => sum.plus(toDecimal(lot.quantityRemaining)), new Prisma.Decimal(0));
 
   // Legacy inventory rows created before lots existed (or by imports) still
   // carry a usable balance. Materialise it as an OPENING_BALANCE lot with no
   // known cost so FIFO can consume it honestly — never invent a price/date.
-  if (available.lessThan(requested) && balanceBefore.greaterThan(available)) {
+  if (available.lessThan(requested) && rawBalance.greaterThan(available)) {
     await createStockLot(tx, {
       foodItemId: input.foodItemId,
-      quantityReceived: balanceBefore.minus(available),
+      quantityReceived: rawBalance.minus(available),
       referenceType: 'OPENING_BALANCE',
       receivedDate: new Date(),
       createdBy: input.actorId,
@@ -357,6 +357,7 @@ export async function allocateStockFifo(tx: Prisma.TransactionClient, input: Fif
     });
   }
 
+  const balanceBefore = Prisma.Decimal.max(rawBalance, available);
   let runningBalance = balanceBefore;
 
   // Explicit non-negative guard. A correctly maintained system has
@@ -421,10 +422,21 @@ export async function allocateStockFifo(tx: Prisma.TransactionClient, input: Fif
     runningBalance = lineBalanceAfter;
   }
 
+  const remainingLotsSum = await tx.stockLot.aggregate({
+    where: {
+      foodItemId: input.foodItemId,
+      status: { in: ['AVAILABLE', 'PARTIALLY_CONSUMED'] },
+      quantityRemaining: { gt: 0 },
+    },
+    _sum: { quantityRemaining: true },
+  });
+  const actualRemaining = remainingLotsSum._sum.quantityRemaining ?? new Prisma.Decimal(0);
+  const finalBalanceAfter = Prisma.Decimal.max(balanceAfter, actualRemaining);
+
   await tx.inventory.upsert({
     where: { foodItemId: input.foodItemId },
-    update: { currentQuantity: balanceAfter },
-    create: { foodItemId: input.foodItemId, currentQuantity: balanceAfter },
+    update: { currentQuantity: finalBalanceAfter },
+    create: { foodItemId: input.foodItemId, currentQuantity: finalBalanceAfter },
   });
 
   return {
@@ -432,6 +444,6 @@ export async function allocateStockFifo(tx: Prisma.TransactionClient, input: Fif
     totalCost: totalCost === null ? null : totalCost.toNumber(),
     transactions,
     balanceBefore: balanceBefore.toNumber(),
-    balanceAfter: balanceAfter.toNumber(),
+    balanceAfter: finalBalanceAfter.toNumber(),
   };
 }

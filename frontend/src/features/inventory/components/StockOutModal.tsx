@@ -4,6 +4,7 @@ import { FieldLabel } from '../../../components/ui/FieldLabel';
 import { APP_CONSTANTS } from '../../../constants/appConstants';
 import {
   fetchFifoPreview,
+  fetchFoodItemDetail,
   fetchFoodItemsList,
   formatINR,
   stockOut,
@@ -44,6 +45,8 @@ export function StockOutModal({
   const [allItems, setAllItems] = useState<FoodItemRow[]>([]);
   const [recentEvents, setRecentEvents] = useState<EventListItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<FoodItemRow | null>(preselectedItem ?? null);
+  const [liveStock, setLiveStock] = useState<number | null>(null);
+  const [isStockLoading, setIsStockLoading] = useState(false);
 
   const [qty, setQty] = useState('');
   const [reason, setReason] = useState('');
@@ -55,9 +58,13 @@ export function StockOutModal({
   const [fifoLoading, setFifoLoading] = useState(false);
   const [fifoError, setFifoError] = useState<string | null>(null);
 
+  const activeItem = selectedItem ?? preselectedItem ?? null;
+
   useEffect(() => {
     if (isOpen) {
       setSelectedItem(preselectedItem ?? null);
+      setLiveStock(null);
+      setIsStockLoading(false);
       setQty('');
       setReason('');
       setEventId('');
@@ -68,7 +75,7 @@ export function StockOutModal({
 
       if (!preselectedItem) {
         fetchFoodItemsList({ isActive: true, pageSize: 100 })
-          .then((res) => setAllItems(res.foodItems.filter((i) => (i.inventory?.currentQuantity ?? 0) > 0)))
+          .then((res) => setAllItems(res.foodItems))
           .catch(() => {});
       }
       fetchEvents({ pageSize: 50 })
@@ -77,9 +84,38 @@ export function StockOutModal({
     }
   }, [isOpen, preselectedItem]);
 
+  // Dynamically load live stock whenever an item is preselected or picked
+  useEffect(() => {
+    if (!isOpen || !activeItem?.id) {
+      setLiveStock(null);
+      setIsStockLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setIsStockLoading(true);
+    fetchFoodItemDetail(activeItem.id)
+      .then((detail) => {
+        if (!cancelled) {
+          const q = Number(detail.currentQuantity ?? detail.inventory?.currentQuantity ?? 0);
+          setLiveStock(q);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLiveStock(Number(activeItem.inventory?.currentQuantity ?? 0));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsStockLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, activeItem?.id]);
+
   // FIFO live preview calculation
   useEffect(() => {
-    if (!isAdmin || !selectedItem) {
+    if (!isAdmin || !activeItem) {
       setFifoPreview(null);
       setFifoError(null);
       return;
@@ -92,7 +128,7 @@ export function StockOutModal({
     }
     const timer = setTimeout(() => {
       setFifoLoading(true);
-      fetchFifoPreview(selectedItem.id, parsedQty)
+      fetchFifoPreview(activeItem.id, parsedQty)
         .then((preview) => {
           setFifoPreview(preview);
           setFifoError(null);
@@ -105,15 +141,15 @@ export function StockOutModal({
         .finally(() => setFifoLoading(false));
     }, FIFO_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [isAdmin, selectedItem, qty]);
+  }, [isAdmin, activeItem, qty]);
 
   if (!isOpen) return null;
 
-  const currentStock = selectedItem?.inventory?.currentQuantity ?? 0;
+  const currentStock = liveStock !== null ? liveStock : Number(activeItem?.inventory?.currentQuantity ?? 0);
 
   const handleSubmit = async () => {
     setError(null);
-    if (!selectedItem) {
+    if (!activeItem) {
       setError('Choose a food item first.');
       return;
     }
@@ -123,7 +159,7 @@ export function StockOutModal({
       return;
     }
     if (q > currentStock) {
-      setError(`Cannot issue ${q} ${selectedItem.unit?.symbol ?? ''} — only ${currentStock} available in stock.`);
+      setError(`Cannot issue ${q} ${activeItem.unit?.symbol ?? ''} — only ${currentStock} available in stock.`);
       return;
     }
     if (!reason.trim()) {
@@ -133,7 +169,7 @@ export function StockOutModal({
 
     setIsBusy(true);
     try {
-      await stockOut(selectedItem.id, q, {
+      await stockOut(activeItem.id, q, {
         reason: reason.trim(),
         referenceType: eventId ? 'EVENT' : undefined,
         referenceId: eventId || null,
@@ -176,28 +212,44 @@ export function StockOutModal({
                 <div className="flex-none text-right">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-muted">Current Stock</p>
                   <p className="text-sm font-bold tabular-nums text-ink">
-                    {currentStock} {preselectedItem.unit?.symbol}
+                    {isStockLoading && liveStock === null ? (
+                      <span className="text-xs text-muted">Loading…</span>
+                    ) : (
+                      `${currentStock} ${preselectedItem.unit?.symbol ?? ''}`
+                    )}
                   </p>
                 </div>
               </div>
             </div>
           ) : (
-            <select
-              id="stock-out-item"
-              value={selectedItem?.id ?? ''}
-              onChange={(e) => {
-                const item = allItems.find((i) => i.id === e.target.value) ?? null;
-                setSelectedItem(item);
-              }}
-              className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25"
-            >
-              <option value="">Select food item…</option>
-              {allItems.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name} — in stock {item.inventory?.currentQuantity ?? 0} {item.unit?.symbol}
-                </option>
-              ))}
-            </select>
+            <div>
+              <select
+                id="stock-out-item"
+                value={selectedItem?.id ?? ''}
+                onChange={(e) => {
+                  const item = allItems.find((i) => i.id === e.target.value) ?? null;
+                  setSelectedItem(item);
+                }}
+                className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25"
+              >
+                <option value="">Select food item…</option>
+                {allItems.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} ({item.category?.name ?? 'General'} · {item.unit?.symbol ?? item.unit?.name})
+                  </option>
+                ))}
+              </select>
+              {selectedItem && (
+                <div className="mt-2 flex items-center justify-between rounded-xl border border-primary/20 bg-primary/5 px-3.5 py-2">
+                  <span className="text-xs font-semibold text-secondary">
+                    Current available for <strong className="text-ink">{selectedItem.name}</strong>:
+                  </span>
+                  <span className="text-sm font-bold tabular-nums text-primary">
+                    {isStockLoading && liveStock === null ? 'Loading…' : `${currentStock} ${selectedItem.unit?.symbol ?? ''}`}
+                  </span>
+                </div>
+              )}
+            </div>
           )}
         </div>
 
@@ -216,9 +268,12 @@ export function StockOutModal({
             placeholder="e.g. 50"
             className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25"
           />
-          {selectedItem && (
+          {activeItem && (
             <p className="mt-1.5 text-[10px] leading-snug text-muted">
-              Max available: <span className="font-semibold text-ink">{currentStock} {selectedItem.unit?.symbol}</span>
+              Max available:{' '}
+              <span className="font-semibold text-ink">
+                {isStockLoading && liveStock === null ? 'Loading…' : `${currentStock} ${activeItem.unit?.symbol ?? ''}`}
+              </span>
             </p>
           )}
         </div>

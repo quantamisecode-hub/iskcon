@@ -5,6 +5,7 @@ import { DatePicker } from '../../../components/ui/DatePicker';
 import { APP_CONSTANTS } from '../../../constants/appConstants';
 import { displayDateToIso, isoDateToDisplay } from '../../../utils/dateTime';
 import {
+  fetchFoodItemDetail,
   fetchFoodItemsList,
   fetchVendors,
   formatINR,
@@ -48,6 +49,8 @@ export function StockInModal({
   const [allItems, setAllItems] = useState<FoodItemRow[]>([]);
   const [vendors, setVendors] = useState<VendorRow[]>([]);
   const [selectedItem, setSelectedItem] = useState<FoodItemRow | null>(preselectedItem ?? null);
+  const [liveStock, setLiveStock] = useState<number | null>(null);
+  const [isStockLoading, setIsStockLoading] = useState(false);
 
   const [stockType, setStockType] = useState<'CHARITY' | 'EXPENSE' | ''>('');
   const [donorName, setDonorName] = useState('');
@@ -61,9 +64,13 @@ export function StockInModal({
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
 
+  const activeItem = selectedItem ?? preselectedItem ?? null;
+
   useEffect(() => {
     if (isOpen) {
       setSelectedItem(preselectedItem ?? null);
+      setLiveStock(null);
+      setIsStockLoading(false);
       setStockType('');
       setDonorName('');
       setVendorId('');
@@ -86,6 +93,35 @@ export function StockInModal({
         .catch(() => {});
     }
   }, [isOpen, preselectedItem]);
+
+  // Dynamically load live stock whenever an item is preselected or picked
+  useEffect(() => {
+    if (!isOpen || !activeItem?.id) {
+      setLiveStock(null);
+      setIsStockLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setIsStockLoading(true);
+    fetchFoodItemDetail(activeItem.id)
+      .then((detail) => {
+        if (!cancelled) {
+          const q = Number(detail.currentQuantity ?? detail.inventory?.currentQuantity ?? 0);
+          setLiveStock(q);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLiveStock(Number(activeItem.inventory?.currentQuantity ?? 0));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsStockLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, activeItem?.id]);
 
   if (!isOpen) return null;
 
@@ -173,28 +209,44 @@ export function StockInModal({
                 <div className="flex-none text-right">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-muted">Current Stock</p>
                   <p className="text-sm font-bold tabular-nums text-ink">
-                    {preselectedItem.inventory?.currentQuantity ?? 0} {preselectedItem.unit?.symbol}
+                    {isStockLoading && liveStock === null ? (
+                      <span className="text-xs text-muted">Loading…</span>
+                    ) : (
+                      `${liveStock !== null ? liveStock : (preselectedItem.inventory?.currentQuantity ?? 0)} ${preselectedItem.unit?.symbol ?? ''}`
+                    )}
                   </p>
                 </div>
               </div>
             </div>
           ) : (
-            <select
-              id="stock-item"
-              value={selectedItem?.id ?? ''}
-              onChange={(e) => {
-                const item = allItems.find((i) => i.id === e.target.value) ?? null;
-                setSelectedItem(item);
-              }}
-              className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25"
-            >
-              <option value="">Select food item…</option>
-              {allItems.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name} — in stock {item.inventory?.currentQuantity ?? 0} {item.unit?.symbol}
-                </option>
-              ))}
-            </select>
+            <div>
+              <select
+                id="stock-item"
+                value={selectedItem?.id ?? ''}
+                onChange={(e) => {
+                  const item = allItems.find((i) => i.id === e.target.value) ?? null;
+                  setSelectedItem(item);
+                }}
+                className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25"
+              >
+                <option value="">Select food item…</option>
+                {allItems.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} ({item.category?.name ?? 'General'} · {item.unit?.symbol ?? item.unit?.name})
+                  </option>
+                ))}
+              </select>
+              {selectedItem && (
+                <div className="mt-2 flex items-center justify-between rounded-xl border border-primary/20 bg-primary/5 px-3.5 py-2">
+                  <span className="text-xs font-semibold text-secondary">
+                    Current stock for <strong className="text-ink">{selectedItem.name}</strong>:
+                  </span>
+                  <span className="text-sm font-bold tabular-nums text-primary">
+                    {isStockLoading && liveStock === null ? 'Loading…' : `${liveStock !== null ? liveStock : (selectedItem.inventory?.currentQuantity ?? 0)} ${selectedItem.unit?.symbol ?? ''}`}
+                  </span>
+                </div>
+              )}
+            </div>
           )}
         </div>
 

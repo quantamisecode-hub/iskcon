@@ -18,8 +18,8 @@ export const foodItemRepository = {
   },
 
   async findById(id: string) {
-    // Include masters so callers get real names for audit logs / display.
-    return prisma.foodItem.findUnique({ where: { id }, include: { category: true, unit: true } });
+    // Include masters so callers get real names and inventory for audit logs / display.
+    return prisma.foodItem.findUnique({ where: { id }, include: { category: true, unit: true, inventory: true } });
   },
 
   async findByName(name: string): Promise<FoodItem | null> {

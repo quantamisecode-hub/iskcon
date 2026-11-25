@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { fetchFoodItemDetail, fetchInventoryValuation, fetchStockLots, formatINR, type FoodItemDetail, type StockLotRow } from '../features/inventory/api/inventory.api';
+import { fetchFoodItemDetail, fetchInventoryValuation, fetchStockLots, formatINR, type FoodItemDetail, type FoodItemRow, type StockLotRow } from '../features/inventory/api/inventory.api';
 import { Skeleton } from '../components/ui/Skeleton';
 import { ArrowLeftIcon, PencilIcon, TruckIcon } from '../components/ui/icons';
 import { useAuth } from '../hooks/useAuth';
@@ -93,6 +93,13 @@ export function FoodItemDetailPage() {
   }
 
   const { foodItem, currentQuantity, status, recentTransactions, relatedEvents, relatedRequests } = detail;
+  const itemForModal: FoodItemRow = {
+    ...foodItem,
+    inventory: {
+      currentQuantity,
+      updatedAt: detail.inventory?.updatedAt ? String(detail.inventory.updatedAt) : undefined,
+    },
+  };
 
   return (
     <div className="space-y-6">
@@ -110,9 +117,9 @@ export function FoodItemDetailPage() {
           <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-wider ${foodItem.isActive ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-slate-100 text-slate-600'}`}>
             {foodItem.isActive ? 'Active' : 'Inactive'}
           </span>
-          <button type="button" onClick={() => openStockIn(foodItem, () => void load())} className="rounded-xl bg-primary px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-primary-foreground transition hover:bg-primary-dark">+ Stock In</button>
+          <button type="button" onClick={() => openStockIn(itemForModal, () => void load())} className="rounded-xl bg-primary px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-primary-foreground transition hover:bg-primary-dark">+ Stock In</button>
           {currentQuantity > 0 && (
-            <button type="button" onClick={() => openStockOut(foodItem, () => void load())} className="inline-flex items-center gap-1.5 rounded-xl border border-danger/40 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-danger transition hover:bg-danger-soft"><TruckIcon className="h-4 w-4" />− Stock Out</button>
+            <button type="button" onClick={() => openStockOut(itemForModal, () => void load())} className="inline-flex items-center gap-1.5 rounded-xl border border-danger/40 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-danger transition hover:bg-danger-soft"><TruckIcon className="h-4 w-4" />− Stock Out</button>
           )}
         </div>
       </div>

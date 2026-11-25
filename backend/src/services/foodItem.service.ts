@@ -138,8 +138,8 @@ export const foodItemService = {
       const effectiveQty = Prisma.Decimal.max(invQty, lotQty);
 
       const effectiveInventory = item.inventory
-        ? { ...item.inventory, currentQuantity: effectiveQty }
-        : { id: `auto-${item.id}`, foodItemId: item.id, currentQuantity: effectiveQty, updatedAt: new Date() };
+        ? { ...item.inventory, currentQuantity: effectiveQty.toNumber() }
+        : { id: `auto-${item.id}`, foodItemId: item.id, currentQuantity: effectiveQty.toNumber(), updatedAt: new Date() };
 
       return {
         ...item,
@@ -346,7 +346,17 @@ export const foodItemService = {
       }
 
       const inventory = await tx.inventory.findUnique({ where: { foodItemId } });
-      const balanceBefore = toDecimal(inventory?.currentQuantity ?? 0);
+      const rawBalance = toDecimal(inventory?.currentQuantity ?? 0);
+      const existingLotsSum = await tx.stockLot.aggregate({
+        where: {
+          foodItemId,
+          status: { in: ['AVAILABLE', 'PARTIALLY_CONSUMED'] },
+          quantityRemaining: { gt: 0 },
+        },
+        _sum: { quantityRemaining: true },
+      });
+      const lotsSum = existingLotsSum._sum.quantityRemaining ?? new Prisma.Decimal(0);
+      const balanceBefore = Prisma.Decimal.max(rawBalance, lotsSum);
       const newQuantity = balanceBefore.plus(qty);
 
       const updatedInventory = await tx.inventory.upsert({
@@ -764,14 +774,19 @@ export const foodItemService = {
       if (lot.unitCost === null) continue;
       inventoryValueDecimal = inventoryValueDecimal.plus(toDecimal(lot.unitCost).times(toDecimal(lot.quantityRemaining)));
     }
+    const inventoryPayload = {
+      id: inventory?.id ?? `auto-${foodItemId}`,
+      foodItemId,
+      currentQuantity: currentQty,
+      updatedAt: inventory?.updatedAt ?? new Date(),
+    };
+
     return {
-      foodItem: food,
-      inventory: {
-        id: inventory?.id ?? `auto-${foodItemId}`,
-        foodItemId,
-        currentQuantity: currentQty,
-        updatedAt: inventory?.updatedAt ?? new Date(),
+      foodItem: {
+        ...food,
+        inventory: inventoryPayload,
       },
+      inventory: inventoryPayload,
       currentQuantity: currentQty,
       status: calculatedStatus,
       stockSummary: {

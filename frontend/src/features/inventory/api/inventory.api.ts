@@ -536,7 +536,7 @@ export async function fetchLedgerEntry(id: string): Promise<LedgerRow> {
 
 export interface FoodItemDetail {
   foodItem: FoodItemRow;
-  inventory: { currentQuantity: number } | null;
+  inventory: { currentQuantity: number; updatedAt?: string } | null;
   currentQuantity: number;
   status: 'NORMAL' | 'LOW' | 'CRITICAL' | 'OUT_OF_STOCK';
   stockSummary: { currentQuantity: number; minimumStock: number; reorderLevel: number };
