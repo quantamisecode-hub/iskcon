@@ -18,7 +18,7 @@ export const EVENT_EXPENSE_CATEGORIES = ['GAS', 'TRANSPORT', 'LABOUR', 'OTHER'] 
 
 export const APP_CONSTANTS = {
   brand: {
-    name: 'ISKCON',
+    name: 'ISKCON Rohini',
     description: 'Food Inventory & Material Management',
     logoPath: '/iskcon-logo.png',
     challanTitle: 'PRASAD DISPATCH CHALLAN',

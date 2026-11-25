@@ -235,7 +235,14 @@ function FoodItemFormModal({
     try {
       const saved = mode === 'create'
         ? await createFoodItem({ name: name.trim(), description: description.trim() || undefined, categoryName, unitSymbol, minimumStock: min, reorderLevel: reorder })
-        : await updateFoodItem(item!.id, { name: name.trim(), description: description.trim() || undefined, minimumStock: min, reorderLevel: reorder });
+        : await updateFoodItem(item!.id, {
+            name: name.trim(),
+            description: description.trim() || undefined,
+            categoryName: categoryName || undefined,
+            unitSymbol: unitSymbol || undefined,
+            minimumStock: min,
+            reorderLevel: reorder,
+          });
       onSaved(saved);
     } catch (err) {
       const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
@@ -280,7 +287,7 @@ function FoodItemFormModal({
             <FieldLabel htmlFor="fi-cat" className="mb-1.5 block text-xs font-semibold text-ink">Category *</FieldLabel>
             <div className="relative">
               <LayersIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-              <select id="fi-cat" required value={categoryName} onChange={(e) => setCategoryName(e.target.value)} disabled={mode === 'edit' || noCategories} className="w-full appearance-none rounded-xl border border-border-strong/70 bg-white py-2.5 pl-10 pr-3.5 text-sm outline-none focus:border-primary disabled:bg-background disabled:text-muted">
+              <select id="fi-cat" required value={categoryName} onChange={(e) => setCategoryName(e.target.value)} disabled={noCategories} className="w-full appearance-none rounded-xl border border-border-strong/70 bg-white py-2.5 pl-10 pr-3.5 text-sm outline-none focus:border-primary disabled:bg-background disabled:text-muted">
                 <option value="">Select…</option>
                 {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
               </select>
@@ -290,7 +297,7 @@ function FoodItemFormModal({
             <FieldLabel htmlFor="fi-unit" className="mb-1.5 block text-xs font-semibold text-ink">Unit *</FieldLabel>
             <div className="relative">
               <RulerIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-              <select id="fi-unit" required value={unitSymbol} onChange={(e) => setUnitSymbol(e.target.value)} disabled={mode === 'edit' || noUnits} className="w-full appearance-none rounded-xl border border-border-strong/70 bg-white py-2.5 pl-10 pr-3.5 text-sm outline-none focus:border-primary disabled:bg-background disabled:text-muted">
+              <select id="fi-unit" required value={unitSymbol} onChange={(e) => setUnitSymbol(e.target.value)} disabled={noUnits} className="w-full appearance-none rounded-xl border border-border-strong/70 bg-white py-2.5 pl-10 pr-3.5 text-sm outline-none focus:border-primary disabled:bg-background disabled:text-muted">
                 <option value="">Select…</option>
                 {units.map((u) => <option key={u.id} value={u.symbol}>{u.symbol} — {u.name}</option>)}
               </select>

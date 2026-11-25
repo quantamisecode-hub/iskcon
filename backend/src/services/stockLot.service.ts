@@ -162,7 +162,11 @@ export const stockLotService = {
 
     const data: Prisma.StockLotUpdateInput = {};
     if (input.vendorId !== undefined) {
-      data.vendor = input.vendorId ? { connect: { id: input.vendorId } } : { disconnect: true };
+      if (input.vendorId) {
+        data.vendor = { connect: { id: input.vendorId } };
+      } else if (existing.vendorId) {
+        data.vendor = { disconnect: true };
+      }
     }
     if (input.stockType !== undefined) {
       data.stockType = input.stockType;
@@ -175,10 +179,20 @@ export const stockLotService = {
       data.donorName = activeType === 'CHARITY' ? input.donorName : null;
     }
     if (input.purchaseDate !== undefined) {
-      data.purchaseDate = input.purchaseDate ? new Date(input.purchaseDate) : null;
+      if (!input.purchaseDate) {
+        data.purchaseDate = null;
+      } else {
+        const d = new Date(input.purchaseDate);
+        data.purchaseDate = !isNaN(d.getTime()) ? d : null;
+      }
     }
     if (input.receivedDate !== undefined) {
-      data.receivedDate = new Date(input.receivedDate);
+      if (input.receivedDate) {
+        const d = new Date(input.receivedDate);
+        if (!isNaN(d.getTime())) {
+          data.receivedDate = d;
+        }
+      }
     }
     if (input.unitCost !== undefined) {
       data.unitCost = input.unitCost !== null ? toDecimal(input.unitCost) : null;

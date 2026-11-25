@@ -193,10 +193,19 @@ export const foodItemService = {
     }
 
     const data: Parameters<typeof foodItemRepository.update>[1] = {};
-    if (input.name !== undefined) data.name = input.name;
-    if (input.description !== undefined) data.description = input.description;
-    if (input.minimumStock !== undefined) data.minimumStock = input.minimumStock;
-    if (input.reorderLevel !== undefined) data.reorderLevel = input.reorderLevel;
+    if (input.name !== undefined) {
+      const trimmedName = input.name.trim();
+      if (trimmedName.toLowerCase() !== food.name.toLowerCase()) {
+        const existing = await foodItemRepository.findByName(trimmedName);
+        if (existing && existing.id !== id) {
+          throw new ApiError({ statusCode: 409, code: ERROR_CODES.CONFLICT, message: 'A food item with this name already exists.' });
+        }
+      }
+      data.name = trimmedName;
+    }
+    if (input.description !== undefined) data.description = input.description ? input.description.trim() : null;
+    if (input.minimumStock !== undefined) data.minimumStock = Math.round(input.minimumStock);
+    if (input.reorderLevel !== undefined) data.reorderLevel = Math.round(input.reorderLevel);
     if (input.isActive !== undefined) data.isActive = input.isActive === 'true';
 
     if (input.categoryName !== undefined) {

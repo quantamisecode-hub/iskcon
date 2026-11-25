@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
 import { logger } from '../utils/logger.js';
 import { ERROR_CODES, type ErrorCode } from '../constants/errorCodes.js';
@@ -98,6 +99,47 @@ function describeError(error: unknown): ErrorDescriptor {
       statusCode: 400,
       code: ERROR_CODES.VALIDATION_ERROR,
       message: 'Invalid request data.',
+    };
+  }
+
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === 'P2002') {
+      const target = (error.meta?.target as string[])?.join(', ') || 'field';
+      return {
+        statusCode: 409,
+        code: ERROR_CODES.CONFLICT,
+        message: `A record with this ${target} already exists.`,
+      };
+    }
+    if (error.code === 'P2025') {
+      return {
+        statusCode: 404,
+        code: ERROR_CODES.NOT_FOUND,
+        message: 'The requested record was not found.',
+      };
+    }
+    if (error.code === 'P2003') {
+      return {
+        statusCode: 400,
+        code: ERROR_CODES.VALIDATION_ERROR,
+        message: 'Operation failed due to related record constraint (foreign key restriction).',
+      };
+    }
+  }
+
+  if (error instanceof Prisma.PrismaClientValidationError) {
+    return {
+      statusCode: 400,
+      code: ERROR_CODES.VALIDATION_ERROR,
+      message: 'Invalid database payload.',
+    };
+  }
+
+  if (error instanceof Error && error.message) {
+    return {
+      statusCode: 500,
+      code: ERROR_CODES.INTERNAL_ERROR,
+      message: error.message,
     };
   }
 
