@@ -14,7 +14,7 @@ import { ERROR_CODES } from '../constants/errorCodes.js';
  * Clients always receive a generic VALIDATION_ERROR, never internal details.
  */
 export function validateBody(schema: ZodType) {
-  return (req: Request, _res: Response, next: NextFunction): void => {
+  return (req: Request, res: Response, next: NextFunction): void => {
     // Express 5 leaves req.body undefined when no payload is sent. Normalise
     // to {} so all-optional schemas (e.g. approve-all) accept an empty POST,
     // while schemas with required fields still fail validation.
@@ -24,6 +24,7 @@ export function validateBody(schema: ZodType) {
       return;
     }
     Object.assign(req, { body: result.data });
+    Object.assign(res.locals, { validatedBody: result.data });
     next();
   };
 }

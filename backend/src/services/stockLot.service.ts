@@ -154,52 +154,53 @@ export const stockLotService = {
     receivedDate?: string;
     unitCost?: number | null;
     status?: string;
-  }): Promise<StockLotRow> {
+  } = {}): Promise<StockLotRow> {
+    const safeInput = input ?? {};
     const existing = await stockLotRepository.findById(id);
     if (!existing) {
       throw new ApiError({ statusCode: 404, code: ERROR_CODES.NOT_FOUND, message: 'Stock lot not found.' });
     }
 
     const data: Prisma.StockLotUpdateInput = {};
-    if (input.vendorId !== undefined) {
-      if (input.vendorId) {
-        data.vendor = { connect: { id: input.vendorId } };
+    if (safeInput.vendorId !== undefined) {
+      if (safeInput.vendorId) {
+        data.vendor = { connect: { id: safeInput.vendorId } };
       } else if (existing.vendorId) {
         data.vendor = { disconnect: true };
       }
     }
-    if (input.stockType !== undefined) {
-      data.stockType = input.stockType;
-      if (input.stockType !== 'CHARITY') {
+    if (safeInput.stockType !== undefined) {
+      data.stockType = safeInput.stockType;
+      if (safeInput.stockType !== 'CHARITY') {
         data.donorName = null;
       }
     }
-    if (input.donorName !== undefined) {
-      const activeType = input.stockType !== undefined ? input.stockType : existing.stockType;
-      data.donorName = activeType === 'CHARITY' ? input.donorName : null;
+    if (safeInput.donorName !== undefined) {
+      const activeType = safeInput.stockType !== undefined ? safeInput.stockType : existing.stockType;
+      data.donorName = activeType === 'CHARITY' ? safeInput.donorName : null;
     }
-    if (input.purchaseDate !== undefined) {
-      if (!input.purchaseDate) {
+    if (safeInput.purchaseDate !== undefined) {
+      if (!safeInput.purchaseDate) {
         data.purchaseDate = null;
       } else {
-        const d = new Date(input.purchaseDate);
+        const d = new Date(safeInput.purchaseDate);
         data.purchaseDate = !isNaN(d.getTime()) ? d : null;
       }
     }
-    if (input.receivedDate !== undefined) {
-      if (input.receivedDate) {
-        const d = new Date(input.receivedDate);
+    if (safeInput.receivedDate !== undefined) {
+      if (safeInput.receivedDate) {
+        const d = new Date(safeInput.receivedDate);
         if (!isNaN(d.getTime())) {
           data.receivedDate = d;
         }
       }
     }
-    if (input.unitCost !== undefined) {
-      data.unitCost = input.unitCost !== null ? toDecimal(input.unitCost) : null;
-      data.totalCost = input.unitCost !== null ? toDecimal(input.unitCost).times(toDecimal(existing.quantityReceived)) : null;
+    if (safeInput.unitCost !== undefined) {
+      data.unitCost = safeInput.unitCost !== null ? toDecimal(safeInput.unitCost) : null;
+      data.totalCost = safeInput.unitCost !== null ? toDecimal(safeInput.unitCost).times(toDecimal(existing.quantityReceived)) : null;
     }
-    if (input.status !== undefined) {
-      data.status = input.status;
+    if (safeInput.status !== undefined) {
+      data.status = safeInput.status;
     }
 
     const updated = await stockLotRepository.update(id, data);

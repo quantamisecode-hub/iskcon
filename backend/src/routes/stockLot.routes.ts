@@ -89,10 +89,10 @@ stockLotRouter.patch(
   adminOnly,
   validateParams(idParamsSchema),
   validateBody(updateStockLotSchema),
-  async (_req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     try {
       const { id } = res.locals['validatedParams'] as { id: string };
-      const body = res.locals['validatedBody'] as z.infer<typeof updateStockLotSchema>;
+      const body = (req.body ?? res.locals['validatedBody'] ?? {}) as z.infer<typeof updateStockLotSchema>;
       const result = await stockLotService.update(id, body);
       sendSuccess(res, result, 'Stock lot updated successfully');
     } catch (error: unknown) {
