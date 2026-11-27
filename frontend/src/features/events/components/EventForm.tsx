@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createEvent, updateEvent } from '../api/events.api';
 import { useAuth } from '../../../hooks/useAuth';
-import { InfoIcon } from '../../../components/ui/icons';
+import { fetchUsers, type ManagedUser } from '../../users/api/users.api';
 import { DatePicker } from '../../../components/ui/DatePicker';
 import { displayDateToIso, isoDateToDisplay } from '../../../utils/dateTime';
 import { APP_CONSTANTS, EVENT_TYPES, LEGACY_EVENT_TYPES, SERVING_TYPES } from '../../../constants/appConstants';
@@ -45,8 +45,18 @@ export function EventForm({
   const [notes, setNotes] = useState(event?.notes ?? '');
   const [donationAmount, setDonationAmount] = useState<string>(String(event?.donationAmount ?? ''));
   const [donationGivenBy, setDonationGivenBy] = useState(event?.donationGivenBy ?? '');
+  const [eventCreatorId, setEventCreatorId] = useState<string>('');
+  const [creators, setCreators] = useState<ManagedUser[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (user?.role === 'ADMIN' && mode === 'create') {
+      fetchUsers({ role: 'EVENT_CREATOR', isActive: 'true', pageSize: 100 })
+        .then((res) => setCreators(res.users))
+        .catch(() => setCreators([]));
+    }
+  }, [user?.role, mode]);
 
   useEffect(() => {
     setError(null);
@@ -114,7 +124,7 @@ export function EventForm({
       notes: notes.trim() || null,
       donationAmount: donationAmount ? Number.parseFloat(donationAmount) : null,
       donationGivenBy: donationGivenBy.trim() || null,
-      ...(mode === 'create' ? { status } : {}),
+      ...(mode === 'create' ? { status, eventCreatorId: eventCreatorId || undefined } : {}),
     };
 
     try {
@@ -132,13 +142,6 @@ export function EventForm({
     }
   };
 
-  const scopeHint =
-    user?.role === 'EXECUTOR'
-      ? 'This event is created inside your assigned Admin’s scope automatically — you cannot choose another Admin.'
-      : user?.role === 'EVENT_CREATOR'
-        ? 'This event will be created under your own account. You can create and view it, but cannot edit or manage it afterwards.'
-        : 'This event belongs to your own Admin scope automatically.';
-
   return (
     <form onSubmit={handleSubmit} className="space-y-5" noValidate>
       {error && (
@@ -147,18 +150,29 @@ export function EventForm({
         </div>
       )}
 
-      {/* Scope assignment — automatic, read-only, per Phase 5 §16 */}
-      <div className="flex items-start gap-2.5 rounded-xl border border-primary/20 bg-primary-soft/40 px-4 py-3">
-        <InfoIcon className="mt-0.5 h-4 w-4 flex-none text-primary" />
-        <div className="min-w-0 text-[11px] leading-snug text-secondary">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-primary-deep">Assignment</p>
-          <p className="mt-1">{scopeHint}</p>
-        </div>
-      </div>
-
       {/* Basic Information */}
       <fieldset className="space-y-4">
         <legend className="text-[10px] font-bold uppercase tracking-[0.22em] text-secondary">Basic Information</legend>
+        {user?.role === 'ADMIN' && mode === 'create' && (
+          <div>
+            <FieldLabel htmlFor="event-creator" className="mb-1.5 block text-xs font-semibold text-ink">
+              Event Creator (optional)
+            </FieldLabel>
+            <select
+              id="event-creator"
+              value={eventCreatorId}
+              onChange={(e) => setEventCreatorId(e.target.value)}
+              className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/25"
+            >
+              <option value="">Default (Assign to myself)</option>
+              {creators.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.firstName} {c.lastName} ({c.email})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div>
           <FieldLabel htmlFor="event-name" className="mb-1.5 block text-xs font-semibold text-ink">
             Event name *

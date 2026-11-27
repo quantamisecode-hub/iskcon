@@ -10,6 +10,7 @@ import {
   updateUserSchema,
   updateUserStatusSchema,
   listUsersQuerySchema,
+  updatePermissionsSchema,
 } from '../validators/user.validator.js';
 
 /**
@@ -27,5 +28,7 @@ userRouter.post('/', validateBody(createUserSchema), userController.create);
 userRouter.get('/:id', validateParams(idParamsSchema), userController.getById);
 userRouter.patch('/:id', validateParams(idParamsSchema), validateBody(updateUserSchema), userController.update);
 userRouter.patch('/:id/status', validateParams(idParamsSchema), validateBody(updateUserStatusSchema), userController.updateStatus);
+userRouter.get('/:id/permissions', validateParams(idParamsSchema), userController.getPermissions);
+userRouter.put('/:id/permissions', validateParams(idParamsSchema), validateBody(updatePermissionsSchema), userController.updatePermissions);
 userRouter.post('/:id/reset-password', validateParams(idParamsSchema), validateBody(resetPasswordSchema), userController.resetPassword);
 userRouter.delete('/:id', validateParams(idParamsSchema), userController.deleteUser);

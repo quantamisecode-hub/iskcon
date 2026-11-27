@@ -39,6 +39,7 @@ export const createEventSchema = z
     contactPerson: z.string().trim().max(APP_CONSTANTS.event.contactPersonMaxLength).optional().nullable(),
     mobileNumber: z.string().trim().max(APP_CONSTANTS.event.mobileNumberMaxLength).optional().nullable(),
     status: z.enum(['DRAFT', 'PLANNING']).optional(),
+    eventCreatorId: z.string().trim().uuid().optional().nullable(),
   })
   .strict();
 

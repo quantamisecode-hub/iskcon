@@ -47,6 +47,7 @@ export interface CreateUserPayload {
   email: string;
   password: string;
   role: 'ADMIN' | 'EXECUTOR' | 'EVENT_CREATOR';
+  permissions?: string[];
 }
 
 export async function createUser(payload: CreateUserPayload): Promise<ManagedUser> {
@@ -112,4 +113,18 @@ export async function assignExecutor(executorId: string, adminId?: string): Prom
 
 export async function unassignExecutor(assignmentId: string): Promise<void> {
   await apiClient.delete(`${API_ENDPOINTS.assignments}/${assignmentId}`);
+}
+
+export interface UserPermissionsResponse {
+  permissions: string[];
+}
+
+export async function fetchUserPermissions(userId: string): Promise<string[]> {
+  const response = await apiClient.get<ApiSuccess<UserPermissionsResponse>>(`${API_ENDPOINTS.users}/${userId}/permissions`);
+  return response.data.data.permissions;
+}
+
+export async function updateUserPermissions(userId: string, permissions: string[]): Promise<string[]> {
+  const response = await apiClient.put<ApiSuccess<UserPermissionsResponse>>(`${API_ENDPOINTS.users}/${userId}/permissions`, { permissions });
+  return response.data.data.permissions;
 }

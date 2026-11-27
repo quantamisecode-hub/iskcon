@@ -8,6 +8,7 @@ import { ApiError } from '../middleware/error.middleware.js';
 import { ERROR_CODES } from '../constants/errorCodes.js';
 import { hashPassword, checkPasswordPolicy } from '../utils/password.js';
 import { toSafeUser, type AuthenticatedUser } from '../utils/safeUser.js';
+import { DEFAULT_ROLE_PERMISSIONS } from '../constants/permissions.js';
 import type { DbClient } from '../repositories/user.repository.js';
 import { disconnectUser, setUserRoleRoom } from '../lib/socket.js';
 
@@ -55,7 +56,7 @@ export const userService = {
       }),
       userRepository.count(where),
     ]);
-    return { users: users.map(toSafeUser), total, page: filters.page, pageSize: filters.pageSize };
+    return { users: users.map((u) => toSafeUser(u)), total, page: filters.page, pageSize: filters.pageSize };
   },
 
   async getUser(id: string): Promise<AuthenticatedUser> {
@@ -74,6 +75,7 @@ export const userService = {
       email: string;
       password: string;
       role: Role;
+      permissions?: string[];
     },
     context: { ipAddress?: string; userAgent?: string },
   ): Promise<AuthenticatedUser> {
@@ -98,6 +100,14 @@ export const userService = {
         { firstName: input.firstName, lastName: input.lastName, email, passwordHash, role: input.role },
         tx,
       );
+
+      if (input.permissions && input.permissions.length > 0) {
+        await tx.userPermission.createMany({
+          data: input.permissions.map((p) => ({ userId: user.id, permission: p })),
+          skipDuplicates: true,
+        });
+      }
+
       await auditLogRepository.create(
         {
           userId: actor.id,
@@ -109,7 +119,14 @@ export const userService = {
                 : AUDIT_ACTIONS.CREATE_EXECUTOR,
           entityType: 'USER',
           entityId: user.id,
-          newValues: { firstName: user.firstName, lastName: user.lastName, email: user.email, role: user.role, isActive: user.isActive },
+          newValues: {
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            role: user.role,
+            isActive: user.isActive,
+            permissions: input.permissions ?? null,
+          },
           ipAddress: context.ipAddress,
           userAgent: context.userAgent,
         },
@@ -117,7 +134,7 @@ export const userService = {
       );
       return user;
     });
-    return toSafeUser(created);
+    return toSafeUser(created, input.permissions);
   },
 
   async updateUser(
@@ -362,6 +379,57 @@ export const userService = {
     });
     disconnectUser(target.id);
     return { deleted: true };
+  },
+
+  async getUserPermissions(targetUserId: string): Promise<string[]> {
+    const target = await userRepository.findById(targetUserId);
+    if (!target) {
+      throw new ApiError({ statusCode: 404, code: ERROR_CODES.NOT_FOUND, message: 'User not found.' });
+    }
+    const rows = await prisma.userPermission.findMany({
+      where: { userId: targetUserId },
+      select: { permission: true },
+    });
+    if (rows.length > 0) {
+      return rows.map((r) => r.permission);
+    }
+    return DEFAULT_ROLE_PERMISSIONS[target.role] ?? [];
+  },
+
+  async updateUserPermissions(
+    actor: AuthenticatedUser,
+    targetUserId: string,
+    permissions: string[],
+    context: { ipAddress?: string; userAgent?: string },
+  ): Promise<string[]> {
+    const target = await userRepository.findById(targetUserId);
+    if (!target) {
+      throw new ApiError({ statusCode: 404, code: ERROR_CODES.NOT_FOUND, message: 'User not found.' });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.userPermission.deleteMany({ where: { userId: targetUserId } });
+      if (permissions.length > 0) {
+        await tx.userPermission.createMany({
+          data: permissions.map((p) => ({ userId: targetUserId, permission: p })),
+          skipDuplicates: true,
+        });
+      }
+      await auditLogRepository.create(
+        {
+          userId: actor.id,
+          action: 'UPDATE_USER_PERMISSIONS',
+          entityType: 'USER',
+          entityId: targetUserId,
+          newValues: { permissionsCount: permissions.length, permissions },
+          ipAddress: context.ipAddress,
+          userAgent: context.userAgent,
+        },
+        tx,
+      );
+    });
+
+    return permissions;
   },
 };
 

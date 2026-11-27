@@ -44,7 +44,7 @@ apiV1Router.use('/vendors', ...staffOnly, vendorRouter);
 apiV1Router.use('/food-items', ...staffOnly, foodItemRouter);
 // Event and calendar routers enforce the create/view subset per route.
 apiV1Router.use('/events', eventRouter);
-apiV1Router.use('/event-dishes', ...staffOnly, eventMaterialRouter);
+apiV1Router.use('/event-dishes', eventMaterialRouter);
 apiV1Router.use('/dishes', ...staffOnly, dishRouter);
 apiV1Router.use('/calendar', calendarRouter);
 apiV1Router.use('/dashboard', ...staffOnly, dashboardRouter);

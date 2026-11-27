@@ -8,13 +8,32 @@ import { PageLoader } from '../common/PageLoader';
  * The backend independently enforces the same rule on every API call
  * with requireRole(...) — role data can never be spoofed from React.
  */
-export function RoleGuard({ allowedRoles, children }: { allowedRoles: AuthRole[]; children: ReactNode }) {
+export function RoleGuard({
+  allowedRoles,
+  requiredPermission,
+  children,
+}: {
+  allowedRoles?: AuthRole[];
+  requiredPermission?: string;
+  children: ReactNode;
+}) {
   const { user, status } = useAuth();
 
   if (status === 'loading') {
     return <PageLoader />;
   }
-  if (!user || !allowedRoles.includes(user.role)) {
+  if (!user) {
+    return <Navigate to="/unauthorized" replace />;
+  }
+  if (user.role === 'ADMIN') {
+    return <>{children}</>;
+  }
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
+    if (!requiredPermission || !(user.permissions ?? []).includes(requiredPermission)) {
+      return <Navigate to="/unauthorized" replace />;
+    }
+  }
+  if (requiredPermission && !(user.permissions ?? []).includes(requiredPermission)) {
     return <Navigate to="/unauthorized" replace />;
   }
   return <>{children}</>;

@@ -1,4 +1,4 @@
-﻿import type { Prisma } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../config/database.js';
 import { eventRepository } from '../repositories/event.repository.js';
 import { eventDishRepository } from '../repositories/eventDish.repository.js';
@@ -71,10 +71,19 @@ function badRequest(message: string): ApiError {
 /** Scope filter for lists/calendar/counts. Executor with no assignment sees nothing. */
 async function resolveScope(user: Actor): Promise<Prisma.EventWhereInput> {
   if (user.role === 'ADMIN') {
-    return { adminId: user.id };
+    return {
+      OR: [
+        { adminId: user.id },
+        { createdBy: user.id },
+        { creator: { role: 'EVENT_CREATOR' } },
+      ],
+    };
   }
   if (user.role === 'EVENT_CREATOR') {
-    // Creators see only what they created. `{ OR: [...] }` keeps isInScope working.
+    const assignment = await assignmentRepository.findActiveByExecutor(user.id);
+    if (assignment) {
+      return { OR: [{ adminId: assignment.adminId }, { createdBy: user.id }] };
+    }
     return { OR: [{ createdBy: user.id }] };
   }
   const assignment = await assignmentRepository.findActiveByExecutor(user.id);
@@ -99,6 +108,7 @@ function isInScope(scope: Prisma.EventWhereInput, event: { adminId: string; crea
 async function loadEventForActor(user: Actor, id: string) {
   const event = await eventRepository.findById(id);
   if (!event) throw notFound();
+  if (user.role === 'ADMIN') return event;
   const scope = await resolveScope(user);
   if (!isInScope(scope, event)) throw forbidden();
   return event;
@@ -299,13 +309,37 @@ export const eventService = {
     contactPerson?: string | null;
     mobileNumber?: string | null;
     status?: 'DRAFT' | 'PLANNING';
+    eventCreatorId?: string | null;
   }, context: { ipAddress?: string; userAgent?: string }) {
     let adminId: string;
-    if (user.role === 'ADMIN' || user.role === 'EVENT_CREATOR') {
-      // A creator owns the event they create; they are not assigned to an admin.
+    let createdBy: string = user.id;
+
+    if (user.role === 'ADMIN') {
       adminId = user.id;
+      if (input.eventCreatorId) {
+        const creator = await prisma.user.findUnique({ where: { id: input.eventCreatorId } });
+        if (!creator || creator.role !== 'EVENT_CREATOR' || !creator.isActive) {
+          throw new ApiError({
+            statusCode: 400,
+            code: ERROR_CODES.VALIDATION_ERROR,
+            message: 'Selected Event Creator was not found or is inactive.',
+          });
+        }
+        createdBy = input.eventCreatorId;
+      }
+    } else if (user.role === 'EVENT_CREATOR') {
+      createdBy = user.id;
+      const assignment = await assignmentRepository.findActiveByExecutor(user.id);
+      if (assignment) {
+        adminId = assignment.adminId;
+      } else {
+        const defaultAdmin = await prisma.user.findFirst({
+          where: { role: 'ADMIN', isActive: true },
+          select: { id: true },
+        });
+        adminId = defaultAdmin?.id ?? user.id;
+      }
     } else {
-      // Executors may view events but never create them.
       throw new ApiError({
         statusCode: 403,
         code: ERROR_CODES.FORBIDDEN,
@@ -335,7 +369,7 @@ export const eventService = {
           mobileNumber: input.mobileNumber ?? null,
           status: input.status ?? 'DRAFT',
           adminId,
-          createdBy: user.id,
+          createdBy,
         },
         include: {
           admin: { select: { id: true, firstName: true, lastName: true, email: true } },
@@ -349,29 +383,45 @@ export const eventService = {
       action: AUDIT_ACTIONS.CREATE_EVENT,
       entityType: 'EVENT',
       entityId: event.id,
-      newValues: { eventCode: event.eventCode, name: event.name, eventDate: input.eventDate, numberOfPeople: event.numberOfPeople, adminId, donationAmount: event.donationAmount, donationGivenBy: event.donationGivenBy, trNumber: event.trNumber },
+      newValues: { eventCode: event.eventCode, name: event.name, eventDate: input.eventDate, numberOfPeople: event.numberOfPeople, adminId, createdBy, donationAmount: event.donationAmount, donationGivenBy: event.donationGivenBy, trNumber: event.trNumber },
       ipAddress: context.ipAddress,
       userAgent: context.userAgent,
     });
 
-    // §49 EVENT_CREATED — notify the OTHER side, never the actor:
-    //   ADMIN creates    -> the admin's assigned executors
-    //   EXECUTOR creates -> the event's admin
+    // Notify appropriate users:
     const recipientIds = new Set<string>();
     if (user.role === 'ADMIN') {
+      if (input.eventCreatorId) {
+        recipientIds.add(input.eventCreatorId);
+      }
       const assigned = await assignmentRepository.findManyForAdmin(adminId, { activeOnly: true });
       for (const row of assigned) recipientIds.add(row.executorId);
+    } else if (user.role === 'EVENT_CREATOR') {
+      const activeAdmins = await prisma.user.findMany({
+        where: { role: 'ADMIN', isActive: true },
+        select: { id: true },
+      });
+      for (const adm of activeAdmins) recipientIds.add(adm.id);
     } else {
       recipientIds.add(adminId);
     }
     recipientIds.delete(user.id);
+
+    const actorUser = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { firstName: true, lastName: true },
+    });
+    const creatorName = actorUser ? `${actorUser.firstName} ${actorUser.lastName}` : 'Event Creator';
+
     await deliverEventNotifications(recipientIds, {
       type: 'EVENT_CREATED',
-      title: `New event: ${event.name}`,
+      title: user.role === 'EVENT_CREATOR' ? `New Event Created: ${event.name}` : `New event: ${event.name}`,
       message:
-        user.role === 'ADMIN'
-          ? `${event.name} (${event.eventCode}) is scheduled for ${formatEventDate(event.eventDate)} and is open for planning and material requests.`
-          : `${event.name} (${event.eventCode}) was created for ${formatEventDate(event.eventDate)} and needs your review.`,
+        user.role === 'EVENT_CREATOR'
+          ? `Event Creator ${creatorName} created event "${event.name}" (${event.eventCode}) on ${formatEventDate(event.eventDate)}.`
+          : input.eventCreatorId && recipientIds.has(input.eventCreatorId)
+            ? `You have been assigned as creator for event "${event.name}" (${event.eventCode}) scheduled for ${formatEventDate(event.eventDate)}.`
+            : `${event.name} (${event.eventCode}) is scheduled for ${formatEventDate(event.eventDate)} and is open for planning and material requests.`,
       referenceType: 'EVENT',
       referenceId: event.id,
       category: 'EVENT',
@@ -639,13 +689,12 @@ export const eventService = {
     input: { reason: string },
     context: { ipAddress?: string; userAgent?: string },
   ) {
-    if (user.role !== 'ADMIN') throw forbidden('Only an admin can cancel an event.');
     const reason = input.reason.trim();
     if (!reason) throw badRequest('A cancellation reason is required.');
 
     const preloaded = await loadEventForActor(user, id);
-    if (preloaded.adminId !== user.id) {
-      throw forbidden('You can only cancel events within your own scope.');
+    if (user.role !== 'ADMIN' && preloaded.createdBy !== user.id && preloaded.adminId !== user.id) {
+      throw forbidden('You can only cancel events within your scope.');
     }
     if (!CANCELLABLE_STATUSES.has(preloaded.status)) {
       throw conflict(`This event can no longer be cancelled while it is ${preloaded.status}.`);

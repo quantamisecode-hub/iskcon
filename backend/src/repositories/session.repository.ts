@@ -1,4 +1,4 @@
-import type { Session, User } from '@prisma/client';
+import type { Session, User, UserPermission } from '@prisma/client';
 import { prisma } from '../config/database.js';
 import type { DbClient } from './user.repository.js';
 
@@ -22,14 +22,14 @@ export const sessionRepository = {
   },
 
   /** Valid = not revoked, not expired, user exists (join). */
-  async findValidByTokenHash(tokenHash: string): Promise<(Session & { user: User }) | null> {
+  async findValidByTokenHash(tokenHash: string): Promise<(Session & { user: User & { permissions: UserPermission[] } }) | null> {
     return prisma.session.findFirst({
       where: {
         tokenHash,
         revokedAt: null,
         expiresAt: { gt: new Date() },
       },
-      include: { user: true },
+      include: { user: { include: { permissions: true } } },
     });
   },
 

@@ -44,6 +44,7 @@ export const userController = {
         email: string;
         password: string;
         role: Role;
+        permissions?: string[];
       };
       const user = await userService.createUser(actor, body, {
         ipAddress: req.ip,
@@ -114,6 +115,31 @@ export const userController = {
         userAgent: req.headers['user-agent'],
       });
       sendSuccess(res, { deleted: true }, 'User deleted');
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async getPermissions(_req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const params = res.locals['validatedParams'] as { id: string };
+      const permissions = await userService.getUserPermissions(params.id);
+      sendSuccess(res, { permissions }, 'User permissions retrieved');
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async updatePermissions(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const actor = getAuthenticatedUser(req);
+      const params = res.locals['validatedParams'] as { id: string };
+      const { permissions } = req.body as { permissions: string[] };
+      const updated = await userService.updateUserPermissions(actor, params.id, permissions, {
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+      sendSuccess(res, { permissions: updated }, 'User permissions updated');
     } catch (error) {
       next(error);
     }

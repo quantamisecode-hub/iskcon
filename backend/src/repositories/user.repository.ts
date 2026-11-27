@@ -22,12 +22,18 @@ export interface CreateUserRecord {
 }
 
 export const userRepository = {
-  async findByEmail(email: string, client: DbClient = prisma): Promise<User | null> {
-    return client.user.findUnique({ where: { email: email.toLowerCase() } });
+  async findByEmail(email: string, client: DbClient = prisma) {
+    return client.user.findUnique({
+      where: { email: email.toLowerCase() },
+      include: { permissions: true },
+    });
   },
 
-  async findById(id: string, client: DbClient = prisma): Promise<User | null> {
-    return client.user.findUnique({ where: { id } });
+  async findById(id: string, client: DbClient = prisma) {
+    return client.user.findUnique({
+      where: { id },
+      include: { permissions: true },
+    });
   },
 
   async findMany(input: {
@@ -35,12 +41,13 @@ export const userRepository = {
     skip: number;
     take: number;
     client?: DbClient;
-  }): Promise<User[]> {
+  }) {
     return (input.client ?? prisma).user.findMany({
       where: input.where,
       orderBy: { createdAt: 'desc' },
       skip: input.skip,
       take: input.take,
+      include: { permissions: true },
     });
   },
 

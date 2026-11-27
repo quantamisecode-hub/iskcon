@@ -51,7 +51,19 @@ ON DUPLICATE KEY UPDATE
     `currentQuantity` = VALUES(`currentQuantity`),
     `updatedAt` = NOW(3);
 
--- 6. Sync _prisma_migrations table
+-- 6. Create UserPermission table for dynamic granular permissions
+CREATE TABLE IF NOT EXISTS `UserPermission` (
+    `id` CHAR(36) NOT NULL,
+    `userId` CHAR(36) NOT NULL,
+    `permission` VARCHAR(100) NOT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    UNIQUE INDEX `UserPermission_userId_permission_key` (`userId`, `permission`),
+    INDEX `UserPermission_userId_idx` (`userId`),
+    PRIMARY KEY (`id`),
+    CONSTRAINT `UserPermission_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- 7. Sync _prisma_migrations table
 INSERT IGNORE INTO `_prisma_migrations` (`id`, `checksum`, `finished_at`, `migration_name`, `logs`, `rolled_back_at`, `started_at`, `applied_steps_count`)
 VALUES
   ('3e82f1a4-adc9-4721-99c4-d4b4fac72596', 'cf98d6244e75501d27f43f5c97d62e1b59d49caf48bdb7661a534ea7648b1dce', '2026-11-20 15:15:48.971', '20261120143800_add_donation_to_event', NULL, NULL, '2026-11-20 15:15:48.971', 1),

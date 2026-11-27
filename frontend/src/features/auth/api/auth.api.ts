@@ -15,6 +15,7 @@ export interface AuthUserProfile {
   role: 'ADMIN' | 'EXECUTOR' | 'EVENT_CREATOR';
   isActive: boolean;
   avatarUrl?: string | null;
+  permissions?: string[];
 }
 
 interface AuthResponse {
@@ -43,7 +44,7 @@ export async function updateProfileRequest(input: {
   currentPassword?: string;
 }): Promise<AuthUserProfile> {
   const response = await apiClient.patch<ApiSuccess<{ user: AuthUserProfile }>>(
-    '/auth/profile',
+    API_ENDPOINTS.profile,
     input,
   );
   return response.data.data.user;
@@ -54,13 +55,13 @@ export async function changePasswordRequest(input: {
   currentPassword: string;
   newPassword: string;
 }): Promise<void> {
-  await apiClient.post('/auth/change-password', input);
+  await apiClient.post(API_ENDPOINTS.changePassword, input);
 }
 
 /** POST /api/v1/auth/avatar — set (data URL) or remove (null) the avatar. */
 export async function updateAvatarRequest(avatarUrl: string | null): Promise<AuthUserProfile> {
   const response = await apiClient.post<ApiSuccess<{ user: AuthUserProfile }>>(
-    '/auth/avatar',
+    API_ENDPOINTS.avatar,
     { avatarUrl },
   );
   return response.data.data.user;

@@ -61,6 +61,7 @@ export const eventController = {
         contactPerson?: string | null;
         mobileNumber?: string | null;
         status?: 'DRAFT' | 'PLANNING';
+        eventCreatorId?: string | null;
       };
       const result = await eventService.create(actor, body, {
         ipAddress: req.ip,

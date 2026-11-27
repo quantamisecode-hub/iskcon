@@ -87,9 +87,23 @@ model User {
   returnsAdmin      MaterialReturn[] @relation("ReturnAdmin")
   returnTimeline    MaterialReturnTimeline[]
   eventExpenses     EventExpense[] @relation("EventExpenseCreator")
+  permissions       UserPermission[]
 
   @@index([role])
   @@index([isActive])
+}
+
+/// Granular module-level and CRUD permissions assigned to a user.
+model UserPermission {
+  id         String   @id @default(uuid()) @db.Char(36)
+  userId     String   @db.Char(36)
+  permission String   @db.VarChar(100)
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permission])
+  @@index([userId])
 }
 
 /// Authentication session (support for multiple devices).

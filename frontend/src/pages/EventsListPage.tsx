@@ -18,8 +18,7 @@ function formatDate(isoDate: string): string {
 export function EventsListPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  // Executors can view events but must not see the create action.
-  const canCreate = user?.role !== 'EXECUTOR';
+  const canCreate = user?.role === 'ADMIN' || (user?.permissions ?? []).includes('events:create');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<EventStatus | ''>('');
   const [dateFrom, setDateFrom] = useState('');

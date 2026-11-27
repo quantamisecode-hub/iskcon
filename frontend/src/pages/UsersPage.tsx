@@ -18,6 +18,8 @@ import { Modal } from '../components/ui/Modal';
 import { Skeleton } from '../components/ui/Skeleton';
 import { TrashIcon } from '../components/ui/icons';
 import { FieldLabel } from '../components/ui/FieldLabel';
+import { UserPermissionsModal } from '../features/users/components/UserPermissionsModal';
+import { PERMISSION_MODULES, DEFAULT_ROLE_PERMISSIONS } from '../constants/permissions';
 
 
 const PAGE_SIZE = 15;
@@ -38,6 +40,7 @@ export function UsersPage() {
   const [editing, setEditing] = useState<ManagedUser | null>(null);
   const [deactivating, setDeactivating] = useState<ManagedUser | null>(null);
   const [assigning, setAssigning] = useState<ManagedUser | null>(null);
+  const [managingPermissions, setManagingPermissions] = useState<ManagedUser | null>(null);
   const [deleting, setDeleting] = useState<ManagedUser | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -83,6 +86,18 @@ export function UsersPage() {
       return;
     }
     setDeactivating(user);
+  };
+
+  const handleQuickUnassign = async (assignmentId: string, targetUser: ManagedUser) => {
+    try {
+      await unassignExecutor(assignmentId);
+      setNotice(`“${targetUser.firstName} ${targetUser.lastName}” unassigned.`);
+      loadAssignments();
+      loadUsers();
+    } catch (err) {
+      const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
+      setError(msg ?? 'Could not unassign user.');
+    }
   };
 
   return (
@@ -144,14 +159,25 @@ export function UsersPage() {
                       <td className="px-4 py-3 text-secondary">{user.email}</td>
                       <td className="px-4 py-3"><span className="rounded-full bg-primary-soft/50 px-2.5 py-1 text-[10px] font-bold tracking-wider text-primary-deep">{displayRole(user.role)}</span></td>
                       <td className="px-4 py-3 text-xs text-secondary">
-                        {user.role === 'EXECUTOR' ? (assignment ? `→ ${assignment.admin.firstName} ${assignment.admin.lastName}` : 'Unassigned') : '—'}
+                        {user.role === 'EXECUTOR' || user.role === 'EVENT_CREATOR' ? (
+                          assignment ? (
+                            <span className="font-medium text-ink">→ {assignment.admin.firstName} {assignment.admin.lastName}</span>
+                          ) : (
+                            <span className="text-muted">Unassigned</span>
+                          )
+                        ) : '—'}
                       </td>
                       <td className="px-4 py-3"><span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${user.isActive ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-slate-100 text-slate-600'}`}>{user.isActive ? 'Active' : 'Inactive'}</span></td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex flex-wrap justify-end gap-2">
+                          <button type="button" onClick={() => setManagingPermissions(user)} className="rounded-lg border border-primary/40 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary-soft">Permissions</button>
                           <button type="button" onClick={() => setEditing(user)} className="rounded-lg border border-border-strong/60 px-3 py-1.5 text-xs font-semibold text-ink hover:border-primary hover:text-primary">Edit</button>
-                          {user.role === 'EXECUTOR' && (
-                            <button type="button" onClick={() => setAssigning(user)} className="rounded-lg border border-border-strong/60 px-3 py-1.5 text-xs font-semibold text-ink hover:border-primary hover:text-primary">Assign</button>
+                          {(user.role === 'EXECUTOR' || user.role === 'EVENT_CREATOR') && (
+                            assignment ? (
+                              <button type="button" onClick={() => void handleQuickUnassign(assignment.id, user)} className="rounded-lg border border-amber-500/40 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-50">Unassign</button>
+                            ) : (
+                              <button type="button" onClick={() => setAssigning(user)} className="rounded-lg border border-border-strong/60 px-3 py-1.5 text-xs font-semibold text-ink hover:border-primary hover:text-primary">Assign</button>
+                            )
                           )}
                           <button type="button" onClick={() => void toggleStatus(user)} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${user.isActive ? 'border-danger/40 text-danger hover:bg-danger-soft' : 'border-emerald-300 text-emerald-800 hover:bg-emerald-50'}`}>{user.isActive ? 'Deactivate' : 'Reactivate'}</button>
                           {currentUser?.id !== user.id && (
@@ -222,6 +248,17 @@ export function UsersPage() {
         />
       )}
       {assigning && <AssignDialog executor={assigning} assignments={assignments} onClose={() => setAssigning(null)} onDone={() => { setAssigning(null); loadAssignments(); }} />}
+      {managingPermissions && (
+        <UserPermissionsModal
+          user={managingPermissions}
+          onClose={() => setManagingPermissions(null)}
+          onSaved={() => {
+            setManagingPermissions(null);
+            setNotice('User permissions updated successfully.');
+            loadUsers();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -232,12 +269,47 @@ function UserFormModal({ mode, user, onClose, onSaved }: { mode: 'create' | 'edi
   const [email, setEmail] = useState(user?.email ?? '');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'ADMIN' | 'EXECUTOR' | 'EVENT_CREATOR'>(user?.role ?? 'EXECUTOR');
+  const [selectedPermissions, setSelectedPermissions] = useState<Set<string>>(
+    new Set(DEFAULT_ROLE_PERMISSIONS[user?.role ?? 'EXECUTOR'] ?? []),
+  );
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [resetPassword, setResetPassword] = useState('');
   const [isResetting, setIsResetting] = useState(false);
   const [resetNotice, setResetNotice] = useState<string | null>(null);
   const [resetError, setResetError] = useState<string | null>(null);
+
+  const handleRoleChange = (newRole: 'ADMIN' | 'EXECUTOR' | 'EVENT_CREATOR') => {
+    setRole(newRole);
+    if (mode === 'create') {
+      setSelectedPermissions(new Set(DEFAULT_ROLE_PERMISSIONS[newRole] ?? []));
+    }
+  };
+
+  const togglePermission = (id: string) => {
+    setSelectedPermissions((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleModule = (moduleId: string) => {
+    const mod = PERMISSION_MODULES.find((m) => m.id === moduleId);
+    if (!mod) return;
+    const allModIds = mod.permissions.map((p) => p.id);
+    const hasAll = allModIds.every((id) => selectedPermissions.has(id));
+    setSelectedPermissions((prev) => {
+      const next = new Set(prev);
+      if (hasAll) {
+        for (const id of allModIds) next.delete(id);
+      } else {
+        for (const id of allModIds) next.add(id);
+      }
+      return next;
+    });
+  };
 
   const handleResetPassword = async () => {
     if (!user || resetPassword.length < 8) return;
@@ -264,7 +336,14 @@ function UserFormModal({ mode, user, onClose, onSaved }: { mode: 'create' | 'edi
     setIsSaving(true);
     try {
       if (mode === 'create') {
-        await createUser({ firstName: firstName.trim(), lastName: lastName.trim(), email: email.trim().toLowerCase(), password, role });
+        await createUser({
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          email: email.trim().toLowerCase(),
+          password,
+          role,
+          permissions: Array.from(selectedPermissions),
+        });
       } else {
         await updateUser(user!.id, { firstName: firstName.trim(), lastName: lastName.trim(), email: email.trim().toLowerCase(), role });
       }
@@ -301,12 +380,70 @@ function UserFormModal({ mode, user, onClose, onSaved }: { mode: 'create' | 'edi
         )}
         <div>
           <FieldLabel htmlFor="u-role" className="mb-1.5 block text-xs font-semibold text-ink">Role</FieldLabel>
-          <select id="u-role" value={role} onChange={(e) => setRole(e.target.value as 'ADMIN' | 'EXECUTOR' | 'EVENT_CREATOR')} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary">
+          <select id="u-role" value={role} onChange={(e) => handleRoleChange(e.target.value as 'ADMIN' | 'EXECUTOR' | 'EVENT_CREATOR')} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary">
             <option value="EXECUTOR">EXECUTOR</option>
             <option value="ADMIN">ADMIN</option>
             <option value="EVENT_CREATOR">Event Creator</option>
           </select>
         </div>
+
+        {mode === 'create' && (
+          <div className="space-y-3 rounded-xl border border-border bg-background p-3.5">
+            <div className="flex items-center justify-between border-b border-border/70 pb-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-secondary">
+                Module Permissions ({selectedPermissions.size} selected)
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedPermissions(new Set(DEFAULT_ROLE_PERMISSIONS[role] ?? []))}
+                className="text-[11px] font-semibold text-primary hover:underline"
+              >
+                Reset to role defaults
+              </button>
+            </div>
+            <div className="max-h-56 space-y-2.5 overflow-y-auto pr-1">
+              {PERMISSION_MODULES.map((module) => {
+                const allModIds = module.permissions.map((p) => p.id);
+                const checkedCount = allModIds.filter((id) => selectedPermissions.has(id)).length;
+                const allChecked = checkedCount === allModIds.length;
+                const someChecked = checkedCount > 0 && !allChecked;
+
+                return (
+                  <div key={module.id} className="rounded-lg border border-border/70 bg-card p-2.5">
+                    <div className="flex items-center justify-between border-b border-border/40 pb-1.5">
+                      <label className="flex cursor-pointer items-center gap-2 text-xs font-bold text-ink">
+                        <input
+                          type="checkbox"
+                          checked={allChecked}
+                          ref={(el) => {
+                            if (el) el.indeterminate = someChecked;
+                          }}
+                          onChange={() => toggleModule(module.id)}
+                          className="h-3.5 w-3.5 rounded border-border-strong text-primary focus:ring-primary"
+                        />
+                        <span>{module.name}</span>
+                      </label>
+                      <span className="text-[10px] text-muted">{checkedCount}/{allModIds.length}</span>
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 gap-1.5">
+                      {module.permissions.map((perm) => (
+                        <label key={perm.id} className="flex cursor-pointer items-center gap-2 text-[11px] text-secondary hover:text-ink">
+                          <input
+                            type="checkbox"
+                            checked={selectedPermissions.has(perm.id)}
+                            onChange={() => togglePermission(perm.id)}
+                            className="h-3 w-3 rounded border-border-strong text-primary focus:ring-primary"
+                          />
+                          <span className="truncate" title={perm.label}>{perm.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <div className="flex items-center justify-end gap-3">
           <button type="button" onClick={onClose} className="rounded-xl border border-border-strong/60 px-4 py-2.5 text-sm font-semibold text-ink hover:bg-background">Cancel</button>
           <button type="submit" disabled={isSaving} className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary-dark disabled:opacity-70">{isSaving ? 'Saving…' : 'Save User'}</button>
@@ -429,17 +566,17 @@ function AssignDialog({ executor, assignments, onClose, onDone }: { executor: Ma
   };
 
   return (
-    <Modal title={existing ? 'Reassign Executor' : 'Assign Executor to Admin'} onClose={onClose} maxWidthClass="max-w-md">
+    <Modal title={existing ? 'Reassign User' : 'Assign User to Admin'} onClose={onClose} maxWidthClass="max-w-md">
       <div className="space-y-4">
         {existing ? (
           <p className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs leading-relaxed text-sky-900">
             <strong>Currently assigned to {existing.admin.firstName} {existing.admin.lastName}.</strong>{' '}
-            Reassigning creates a new assignment and preserves full history — previous events and requests
+            Reassigning creates a new assignment and preserves full history — previous events and records
             remain associated with their original admin.
           </p>
         ) : (
           <p className="text-sm leading-relaxed text-secondary">
-            Assign <strong className="text-ink">{executor.firstName} {executor.lastName}</strong> to an admin.
+            Assign <strong className="text-ink">{executor.firstName} {executor.lastName}</strong> ({displayRole(executor.role)}) to an admin.
             They will be able to manage events within the selected admin's scope.
           </p>
         )}

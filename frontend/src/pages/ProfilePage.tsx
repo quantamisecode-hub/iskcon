@@ -45,6 +45,7 @@ export function ProfilePage() {
   const [isAvatarBusy, setIsAvatarBusy] = useState(false);
   const [avatarNotice, setAvatarNotice] = useState<string | null>(null);
   const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -203,6 +204,7 @@ export function ProfilePage() {
   };
 
   const initials = `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase();
+  const canEditProfile = user.role === 'ADMIN' || (user.permissions ?? []).includes('profile:update');
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -228,25 +230,29 @@ export function ProfilePage() {
                 {initials}
               </div>
             )}
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isAvatarBusy}
-              aria-label="Change profile photo"
-              title="Change photo"
-              className="absolute bottom-0 right-0 rounded-full border border-border bg-card p-2 text-ink shadow-md transition hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:opacity-60"
-            >
-              <CameraIcon className="h-4 w-4" />
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              className="sr-only"
-              onChange={(e) => void handleAvatarPick(e)}
-              aria-hidden="true"
-              tabIndex={-1}
-            />
+            {canEditProfile && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isAvatarBusy}
+                  aria-label="Change profile photo"
+                  title="Change photo"
+                  className="absolute bottom-0 right-0 rounded-full border border-border bg-card p-2 text-ink shadow-md transition hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:opacity-60"
+                >
+                  <CameraIcon className="h-4 w-4" />
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="sr-only"
+                  onChange={(e) => void handleAvatarPick(e)}
+                  aria-hidden="true"
+                  tabIndex={-1}
+                />
+              </>
+            )}
           </div>
 
           <div className="min-w-0 text-center sm:text-left">
@@ -265,15 +271,17 @@ export function ProfilePage() {
                 <ShieldIcon className="h-3 w-3" />
                 {displayRole(user.role)}
               </span>
-              <button
-                type="button"
-                onClick={handleRemoveAvatar}
-                disabled={isAvatarBusy || !user.avatarUrl}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border-strong/60 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-secondary transition hover:border-danger hover:text-danger disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <TrashIcon className="h-3 w-3" />
-                {isAvatarBusy ? 'Working…' : 'Remove photo'}
-              </button>
+              {canEditProfile && (
+                <button
+                  type="button"
+                  onClick={handleRemoveAvatar}
+                  disabled={isAvatarBusy || !user.avatarUrl}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border-strong/60 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-secondary transition hover:border-danger hover:text-danger disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <TrashIcon className="h-3 w-3" />
+                  {isAvatarBusy ? 'Working…' : 'Remove photo'}
+                </button>
+              )}
             </div>
             {avatarNotice && <p role="status" className="mt-2 text-xs font-semibold text-emerald-700">{avatarNotice}</p>}
             {avatarError && <p role="alert" className="mt-2 text-xs font-semibold text-danger">{avatarError}</p>}
@@ -282,57 +290,119 @@ export function ProfilePage() {
       </section>
 
       {/* Details */}
-      <form onSubmit={handleSaveDetails} className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+      <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-secondary">
             <UserIcon className="h-4 w-4 text-primary" />
             Account Details
           </h2>
+          {canEditProfile && (
+            <button
+              type="button"
+              onClick={() => {
+                setIsEditing(!isEditing);
+                setDetailsError(null);
+                setDetailsNotice(null);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border-strong/70 px-3 py-1 text-xs font-semibold text-ink transition hover:border-primary hover:text-primary"
+            >
+              <PencilIcon className="h-3.5 w-3.5" />
+              {isEditing ? 'Cancel Edit' : 'Edit Profile'}
+            </button>
+          )}
         </div>
         {detailsNotice && <p role="status" className="mt-3 rounded-xl border border-[#1e7a3c]/25 bg-[#e9f7ee] px-4 py-2.5 text-xs font-semibold text-[#145c2c]">{detailsNotice}</p>}
         {detailsError && <p role="alert" className="mt-3 rounded-xl border border-danger/25 bg-danger-soft px-4 py-2.5 text-xs font-semibold text-danger">{detailsError}</p>}
 
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <FieldLabel htmlFor="p-first" className="mb-1.5 block text-xs font-semibold text-ink">First name</FieldLabel>
-            <input id="p-first" type="text" required value={firstName} onChange={(e) => setFirstName(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
+        {!canEditProfile ? (
+          <div className="mt-4 space-y-4">
+            <div className="rounded-xl border border-border bg-background/60 px-4 py-3 text-xs text-secondary">
+              Editing profile details is restricted for your account. Please contact an administrator if your information needs to be updated.
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="rounded-xl border border-border/70 bg-background/30 p-3.5">
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-muted">First name</span>
+                <span className="mt-1 block text-sm font-semibold text-ink">{user.firstName}</span>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-background/30 p-3.5">
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-muted">Last name</span>
+                <span className="mt-1 block text-sm font-semibold text-ink">{user.lastName}</span>
+              </div>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background/30 p-3.5">
+              <span className="block text-[10px] font-bold uppercase tracking-wider text-muted">Email address</span>
+              <span className="mt-1 block text-sm font-semibold text-ink">{user.email}</span>
+            </div>
           </div>
-          <div>
-            <FieldLabel htmlFor="p-last" className="mb-1.5 block text-xs font-semibold text-ink">Last name</FieldLabel>
-            <input id="p-last" type="text" required value={lastName} onChange={(e) => setLastName(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
-          </div>
-        </div>
-        <div className="mt-4">
-          <FieldLabel htmlFor="p-email" className="mb-1.5 block text-xs font-semibold text-ink">Email address</FieldLabel>
-          <div className="relative">
-            <MailIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-            <input id="p-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white py-2.5 pl-10 pr-3.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
-          </div>
-          <p className="mt-1.5 text-[10px] text-muted">This is your login email.</p>
-        </div>
+        ) : isEditing ? (
+          <form onSubmit={handleSaveDetails} className="mt-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <FieldLabel htmlFor="p-first" className="mb-1.5 block text-xs font-semibold text-ink">First name</FieldLabel>
+                <input id="p-first" type="text" required value={firstName} onChange={(e) => setFirstName(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
+              </div>
+              <div>
+                <FieldLabel htmlFor="p-last" className="mb-1.5 block text-xs font-semibold text-ink">Last name</FieldLabel>
+                <input id="p-last" type="text" required value={lastName} onChange={(e) => setLastName(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
+              </div>
+            </div>
+            <div className="mt-4">
+              <FieldLabel htmlFor="p-email" className="mb-1.5 block text-xs font-semibold text-ink">Email address</FieldLabel>
+              <div className="relative">
+                <MailIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+                <input id="p-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-xl border border-border-strong/70 bg-white py-2.5 pl-10 pr-3.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/25" />
+              </div>
+              <p className="mt-1.5 text-[10px] text-muted">This is your login email.</p>
+            </div>
 
-        {emailChanged && (
-          <div className="mt-4">
-            <FieldLabel htmlFor="p-email-pass" className="mb-1.5 block text-xs font-semibold text-ink">
-              Current password <span className="font-normal text-muted">(required to change email)</span>
-            </FieldLabel>
-            <div className="relative">
-              <LockIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-              <input id="p-email-pass" type="password" autoComplete="current-password" value={emailPassword} onChange={(e) => setEmailPassword(e.target.value)} placeholder="Enter your password to confirm" className="w-full rounded-xl border border-amber-300 bg-amber-50/50 py-2.5 pl-10 pr-3.5 text-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-200" />
+            {emailChanged && (
+              <div className="mt-4">
+                <FieldLabel htmlFor="p-email-pass" className="mb-1.5 block text-xs font-semibold text-ink">
+                  Current password <span className="font-normal text-muted">(required to change email)</span>
+                </FieldLabel>
+                <div className="relative">
+                  <LockIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+                  <input id="p-email-pass" type="password" autoComplete="current-password" value={emailPassword} onChange={(e) => setEmailPassword(e.target.value)} placeholder="Enter your password to confirm" className="w-full rounded-xl border border-amber-300 bg-amber-50/50 py-2.5 pl-10 pr-3.5 text-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-200" />
+                </div>
+              </div>
+            )}
+
+            <div className="mt-5 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setIsEditing(false)}
+                className="rounded-xl border border-border-strong/60 px-4 py-2.5 text-sm font-semibold text-ink hover:bg-background"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary-dark disabled:opacity-70"
+              >
+                {isSaving ? 'Saving…' : 'Save changes'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="mt-4 space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="rounded-xl border border-border/70 bg-background/30 p-3.5">
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-muted">First name</span>
+                <span className="mt-1 block text-sm font-semibold text-ink">{user.firstName}</span>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-background/30 p-3.5">
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-muted">Last name</span>
+                <span className="mt-1 block text-sm font-semibold text-ink">{user.lastName}</span>
+              </div>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background/30 p-3.5">
+              <span className="block text-[10px] font-bold uppercase tracking-wider text-muted">Email address</span>
+              <span className="mt-1 block text-sm font-semibold text-ink">{user.email}</span>
             </div>
           </div>
         )}
-
-        <div className="mt-5 flex justify-end">
-          <button
-            type="submit"
-            disabled={isSaving}
-            className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary-dark disabled:opacity-70"
-          >
-            {isSaving ? 'Saving…' : 'Save changes'}
-          </button>
-        </div>
-      </form>
+      </div>
 
       {/* Password */}
       <form onSubmit={handleChangePassword} className="rounded-2xl border border-border bg-card p-6 shadow-sm">

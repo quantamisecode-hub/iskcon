@@ -35,7 +35,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     children: [
       { label: 'Stock In', to: '/inventory?stockIn=1' },
       { label: 'Stock Out', to: '/inventory?stockOut=1' },
-      { label: 'Show Ledger', to: '/inventory/ledger' },
+      { label: 'Ledger', to: '/inventory/ledger' },
       { label: 'Add/Show Category', to: '/inventory/categories' },
       { label: 'Food Items', to: '/inventory/food-items' },
     ],
@@ -44,5 +44,5 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { label: 'Returns', to: '/returns', roles: ALL },
   { label: 'Manage Users', to: '/users', roles: ['ADMIN'] },
   { label: 'Manage Vendors', to: '/vendors', roles: ['ADMIN'] },
-  { label: 'Profile', to: '/profile', roles: ALL },
+  { label: 'Profile', to: '/profile', roles: ['ADMIN', 'EXECUTOR', 'EVENT_CREATOR'] },
 ];

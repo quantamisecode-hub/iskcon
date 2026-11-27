@@ -151,7 +151,8 @@ export function EventDetailPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
   const isExecutor = user?.role === 'EXECUTOR';
-  const isEventCreator = user?.role === 'EVENT_CREATOR';
+  const canUpdate = isAdmin || (user?.permissions ?? []).includes('events:update');
+  const canDelete = isAdmin || (user?.permissions ?? []).includes('events:delete');
 
   // ADMIN-only financial statement + non-inventory event expenses.
   const [statement, setStatement] = useState<EventFinancialStatement | null>(null);
@@ -245,8 +246,8 @@ export function EventDetailPage() {
     return () => { unsubscribe(); };
   }, [id, load]);
 
-  // Event Creators are strictly read-only after creating the event.
-  const isEditable = event ? EDITABLE.has(event.status) && !isEventCreator : false;
+  // Event can be edited if status is editable and the user has update permission.
+  const isEditable = event ? EDITABLE.has(event.status) && canUpdate : false;
 
   // Per-food-item shortfall across ALL committed (non-draft) lines in this event.
   const refillNeeds = useMemo(() => {
@@ -692,7 +693,10 @@ export function EventDetailPage() {
     );
   }
 
-  const actions = isEventCreator ? [] : (STATUS_ACTIONS[event.status] ?? []);
+  const actions = (STATUS_ACTIONS[event.status] ?? []).filter((action) => {
+    if (action.target === 'CANCELLED') return canDelete;
+    return canUpdate;
+  });
 
   return (
     <div className="space-y-6">
@@ -713,9 +717,7 @@ export function EventDetailPage() {
             <p className="mt-1 font-mono text-xs tracking-wider text-muted">{event.eventCode}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {actions
-              .filter((action) => action.target !== 'CANCELLED' || isAdmin)
-              .map((action) => (
+            {actions.map((action) => (
               <button
                 key={action.target}
                 type="button"
@@ -753,7 +755,7 @@ export function EventDetailPage() {
                 {action.label}
               </button>
             ))}
-            {!isEventCreator && (event.status === 'READY' || event.status === 'COMPLETED') && (
+            {(canUpdate || isAdmin || isExecutor) && (event.status === 'READY' || event.status === 'COMPLETED') && (
               <button
                 type="button"
                 disabled={isBusy}
@@ -764,7 +766,7 @@ export function EventDetailPage() {
                 Ready for Dispatch
               </button>
             )}
-            {!isEventCreator && event.dispatchedAt &&
+            {event.dispatchedAt &&
               (event.status === 'READY' || event.status === 'COMPLETED') &&
               Boolean(event.verifiedBy) && (
               <button
@@ -777,23 +779,23 @@ export function EventDetailPage() {
                 Download Dispatch Challan
               </button>
             )}
-            {isEditable && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setShowEdit(true)}
-                  className="rounded-xl border border-border-strong/60 px-4 py-2.5 text-xs font-semibold text-ink transition hover:border-primary hover:text-primary"
-                >
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowDelete(true)}
-                  className="rounded-xl border border-danger/40 px-4 py-2.5 text-xs font-semibold text-danger transition hover:bg-danger-soft"
-                >
-                  Delete
-                </button>
-              </>
+            {isEditable && canUpdate && (
+              <button
+                type="button"
+                onClick={() => setShowEdit(true)}
+                className="rounded-xl border border-border-strong/60 px-4 py-2.5 text-xs font-semibold text-ink transition hover:border-primary hover:text-primary"
+              >
+                Edit
+              </button>
+            )}
+            {event && EDITABLE.has(event.status) && canDelete && (
+              <button
+                type="button"
+                onClick={() => setShowDelete(true)}
+                className="rounded-xl border border-danger/40 px-4 py-2.5 text-xs font-semibold text-danger transition hover:bg-danger-soft"
+              >
+                Delete
+              </button>
             )}
           </div>
         </div>
@@ -815,7 +817,7 @@ export function EventDetailPage() {
             This event is <strong>{event.status}</strong> — dishes and materials are locked. Review only; no further planning edits or deletions are
             allowed.
           </p>
-          {!isEventCreator && (event.status === 'READY' || event.status === 'COMPLETED') && (
+          {canUpdate && (event.status === 'READY' || event.status === 'COMPLETED') && (
             <button
               type="button"
               disabled={isBusy}

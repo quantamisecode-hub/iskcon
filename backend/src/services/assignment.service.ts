@@ -64,11 +64,11 @@ export const assignmentService = {
     if (!executor) {
       throw new ApiError({ statusCode: 404, code: ERROR_CODES.NOT_FOUND, message: 'Executor not found.' });
     }
-    if (executor.role !== 'EXECUTOR') {
+    if (executor.role !== 'EXECUTOR' && executor.role !== 'EVENT_CREATOR') {
       throw new ApiError({
         statusCode: 409,
         code: ERROR_CODES.CONFLICT,
-        message: 'Only EXECUTOR users can be assigned.',
+        message: 'Only EXECUTOR and EVENT_CREATOR users can be assigned.',
       });
     }
     if (!executor.isActive) {

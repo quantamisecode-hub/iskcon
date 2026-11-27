@@ -36,36 +36,41 @@ function DataBox({ label, value, highlight = false }: { label: string; value: st
   return (
     <div
       style={{
+        boxSizing: 'border-box',
         background: '#ffffff',
         border: '1px solid #e2e8f0',
         borderRadius: 6,
-        padding: '6px 10px',
-        minHeight: 44,
+        padding: '7px 10px 8px 10px',
+        minHeight: 50,
         display: 'flex',
         flexDirection: 'column',
-        justifyContent: 'center',
+        justifyContent: 'flex-start',
+        overflow: 'visible',
       }}
     >
       <div
         style={{
+          boxSizing: 'border-box',
           fontSize: 8.5,
+          lineHeight: '13px',
           fontWeight: 700,
           letterSpacing: 0.8,
           textTransform: 'uppercase',
           color: '#64748b',
-          marginBottom: 2,
+          marginBottom: 3,
         }}
       >
         {label}
       </div>
       <div
         style={{
+          boxSizing: 'border-box',
           fontSize: 11,
+          lineHeight: '16px',
           fontWeight: highlight ? 700 : 600,
           color: highlight ? '#8a251a' : '#1e293b',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
+          wordBreak: 'break-word',
+          overflow: 'visible',
         }}
       >
         {value || '—'}

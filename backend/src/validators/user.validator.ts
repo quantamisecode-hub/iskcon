@@ -16,6 +16,13 @@ export const createUserSchema = z
     email: emailField,
     password: z.string().min(8).max(128),
     role: z.enum(['ADMIN', 'EXECUTOR', 'EVENT_CREATOR']),
+    permissions: z.array(z.string()).optional(),
+  })
+  .strict();
+
+export const updatePermissionsSchema = z
+  .object({
+    permissions: z.array(z.string()),
   })
   .strict();
 

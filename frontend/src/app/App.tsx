@@ -221,8 +221,8 @@ export function App() {
               }
             />
 
-            {/* Profile — staff only */}
-            <Route path="/profile" element={<RoleGuard allowedRoles={['ADMIN', 'EXECUTOR']}><ProfilePage /></RoleGuard>} />
+            {/* Profile — accessible to all authenticated users */}
+            <Route path="/profile" element={<RoleGuard allowedRoles={['ADMIN', 'EXECUTOR', 'EVENT_CREATOR']}><ProfilePage /></RoleGuard>} />
           </Route>
 
           <Route path="/unauthorized" element={<UnauthorizedPage />} />

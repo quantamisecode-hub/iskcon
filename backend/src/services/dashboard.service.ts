@@ -42,7 +42,20 @@ function toDateOnlyString(year: number, month: number, day: number): string {
 
 async function resolveEventScope(user: Actor): Promise<Prisma.EventWhereInput> {
   if (user.role === 'ADMIN') {
-    return { adminId: user.id };
+    return {
+      OR: [
+        { adminId: user.id },
+        { createdBy: user.id },
+        { creator: { role: 'EVENT_CREATOR' } },
+      ],
+    };
+  }
+  if (user.role === 'EVENT_CREATOR') {
+    const assignment = await assignmentRepository.findActiveByExecutor(user.id);
+    if (assignment) {
+      return { OR: [{ adminId: assignment.adminId }, { createdBy: user.id }] };
+    }
+    return { OR: [{ createdBy: user.id }] };
   }
   const assignment = await assignmentRepository.findActiveByExecutor(user.id);
   if (!assignment) {

@@ -66,6 +66,7 @@ Write-Host "5. Copying built frontend into public directory..." -ForegroundColor
 Copy-Item -Recurse "frontend\dist\*" "$deployDir\public\"
 
 Write-Host "6. Creating production .env template..." -ForegroundColor Cyan
+Copy-Item "cpanel_update_diff.sql" "$deployDir\cpanel_update_diff.sql" -Force
 @'
 NODE_ENV=production
 PORT=5000
@@ -93,5 +94,6 @@ LOG_LEVEL=info
 
 Write-Host "7. Compressing to $zipPath..." -ForegroundColor Cyan
 Compress-Archive -Path "$deployDir\*" -DestinationPath $zipPath -Force
+Copy-Item $zipPath (Join-Path $PSScriptRoot "cpanel_deploy.zip") -Force
 
-Write-Host "`nReady! Upload cpanel-deploy.zip to cPanel." -ForegroundColor Green
+Write-Host "`nReady! Upload cpanel-deploy.zip or cpanel_deploy.zip to cPanel." -ForegroundColor Green

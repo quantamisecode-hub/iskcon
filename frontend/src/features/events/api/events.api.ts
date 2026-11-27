@@ -110,6 +110,7 @@ export interface CreateEventPayload {
   mobileNumber?: string | null;
   /** Only DRAFT | PLANNING are accepted at creation; further transitions go through the status machine. */
   status?: 'DRAFT' | 'PLANNING';
+  eventCreatorId?: string | null;
 }
 
 /** POST /api/v1/events */
